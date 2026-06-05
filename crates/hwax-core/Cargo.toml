@@ -1,0 +1,26 @@
+[package]
+name = "hwax-core"
+version = "0.1.0"
+description = "Pure, Tauri-independent core logic for the HWAX Agent: contract models, download verification, zip-slip-safe extraction, atomic version swap, rollback, GC, and the module install state machine."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex.workspace = true
+zip.workspace = true
+chrono.workspace = true
+semver.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+# JSON Schema validation of built payloads against the real contract schemas
+# (mirrors HEAXHub scripts/validate-e2e-examples.py — Draft 2020-12).
+jsonschema = "0.18"
+tempfile = "3"

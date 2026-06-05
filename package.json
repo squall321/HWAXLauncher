@@ -1,0 +1,24 @@
+{
+  "name": "hwax-launcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HWAX Agent — Tauri 2 tray-resident module deployment/management agent for HEAXHub",
+  "license": "LicenseRef-Proprietary",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @hwax/agent dev",
+    "build": "pnpm --filter @hwax/agent build",
+    "tauri": "pnpm --filter @hwax/agent tauri",
+    "fetch-schemas": "node scripts/fetch-schemas.mjs",
+    "test:core": "cargo test -p hwax-core",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}

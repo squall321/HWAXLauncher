@@ -1,0 +1,36 @@
+# Cargo workspace root.
+# `crates/hwax-core` is the headless-testable pure-logic crate.
+# `apps/agent/src-tauri` (the Tauri shell) is added as a member once scaffolded;
+# it path-depends on hwax-core. Keeping them in one workspace shares Cargo.lock.
+[workspace]
+resolver = "2"
+members = [
+    "crates/hwax-core",
+    # "apps/agent/src-tauri",  # added once the Tauri shell is scaffolded
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.77"
+license = "LicenseRef-Proprietary"
+authors = ["HEAXHub Platform Team"]
+repository = "https://github.com/squall321/HWAXLauncher"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+sha2 = "0.10"
+hex = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+semver = { version = "1", features = ["serde"] }
+tracing = "0.1"
+
+[profile.release]
+panic = "abort"
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"

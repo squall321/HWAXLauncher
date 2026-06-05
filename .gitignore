@@ -1,0 +1,47 @@
+# ── Node / pnpm ───────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+dist/
+dist-ssr/
+*.local
+.vite/
+.eslintcache
+
+# ── Rust / Cargo (Tauri core) ─────────────────────────────────
+# Keep Cargo.lock for the app (binary crate) — it is committed.
+target/
+**/target/
+*.rs.bk
+*.pdb
+
+# ── Tauri build output ────────────────────────────────────────
+apps/agent/src-tauri/gen/
+src-tauri/gen/
+
+# ── Secrets / signing — NEVER commit (split-strategy §8.2) ─────
+*.key
+*.pfx
+*.p12
+*.snk
+*.pem
+.env
+.env.*
+!.env.example
+tauri-signing-key*
+*.tauri-key
+secrets/
+**/private.key
+
+# ── OS / editor ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vs/
+*.swp
+*~
+
+# ── Local agent runtime data (never part of the repo) ─────────
+# Mirrors %LocalAppData%\HWAXAgent\ — present only on a paired PC.
+/.local-appdata/
+*.log
