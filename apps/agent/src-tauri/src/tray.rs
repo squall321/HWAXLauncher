@@ -32,6 +32,17 @@ const ID_SETTINGS: &str = "settings";
 const ID_REPAIR: &str = "repair";
 const ID_QUIT: &str = "quit";
 
+/// Decode the status-colored tray icon (green/yellow/red) compiled into the
+/// binary. PNGs are decoded via the tauri `image-png` feature.
+fn status_icon(color: StatusColor) -> Option<tauri::image::Image<'static>> {
+    let bytes: &[u8] = match color {
+        StatusColor::Green => include_bytes!("../icons/tray-green.png"),
+        StatusColor::Yellow => include_bytes!("../icons/tray-yellow.png"),
+        StatusColor::Red => include_bytes!("../icons/tray-red.png"),
+    };
+    tauri::image::Image::from_bytes(bytes).ok()
+}
+
 /// Build the tray at startup. The module submenu is (re)built by [`refresh`].
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let menu = build_menu(app)?;
@@ -65,6 +76,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+
+    // Apply the status-colored icon + tooltip right away (refresh is a no-op if
+    // AppState isn't managed yet, so this is safe at any point in setup).
+    refresh(app);
     Ok(())
 }
 
@@ -162,9 +177,10 @@ pub fn refresh(app: &AppHandle) {
             "HWAX Agent · {} · {dot}{sync}",
             crate::state::AGENT_VERSION
         )));
-        // NOTE: status-colored icons (icon_green/yellow/red.ico) are bundled by
-        // the build pipeline; once present, swap here via `tray.set_icon(...)`.
-        // We avoid inventing fake binary icon files in source control.
+        // Swap the tray icon to the status-colored variant (green/yellow/red).
+        if let Some(img) = status_icon(color) {
+            let _ = tray.set_icon(Some(img));
+        }
     }
 }
 

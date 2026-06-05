@@ -29,8 +29,9 @@ tauri-build = { version = "2", features = [] }
 hwax-core = { path = "../../../crates/hwax-core" }
 
 # --- Tauri 2 shell + the three minimal plugins we actually use ---
-# `tray-icon` gives us the system-tray surface (v2 plan §11.1).
-tauri = { version = "2", features = ["tray-icon"] }
+# `tray-icon` gives us the system-tray surface (v2 plan §11.1); `image-png`
+# lets us decode the embedded green/yellow/red status PNGs at runtime.
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 # Agent self-update via the HEAXHub-hosted updater manifest (v2 plan §18).
 tauri-plugin-updater = "2"
 # Opt-in "start on Windows boot" toggle — never auto-registered (v2 plan §11.2).
@@ -65,6 +66,10 @@ chrono = { workspace = true }
 # Used to recognize on-disk version directories (skip *.staging) in module_detail.
 semver = { workspace = true }
 dirs = "5"
+# Available-disk-space probe for `health_check` (tiny, Windows-friendly).
+fs2 = "0.4"
+# Diagnostic-dump zip writer (`make_dump`) — same crate hwax-core already uses.
+zip = { workspace = true }
 
 [features]
 # Tauri's `custom-protocol` is required by the production (non-dev) build.

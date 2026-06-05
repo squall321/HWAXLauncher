@@ -608,43 +608,95 @@ pub async fn health_check(app: AppHandle) -> Result<HealthReport, String> {
     })
 }
 
-/// Best-effort free-space probe. Phase 1 returns 0 (unknown) rather than pulling
-/// a winapi just for this; the hub/health UI treats 0 as "unknown".
-/// TODO(phase2): query GetDiskFreeSpaceExW via `windows` crate.
-fn free_space(_path: &std::path::Path) -> u64 {
-    0
+/// Available bytes on the volume backing `path` (for `health_check`). `fs2` is a
+/// thin `GetDiskFreeSpaceExW` wrapper on Windows. Returns 0 if the query fails —
+/// the hub/health UI treats 0 as "unknown".
+fn free_space(path: &std::path::Path) -> u64 {
+    fs2::available_space(path).unwrap_or(0)
 }
 
-/// Build a diagnostic zip under %TEMP% (v2 §19). Phase 1 writes a JSON summary
-/// to the temp dir and returns its path; the full log-bundling zip is a TODO.
-/// device_jwt is never included (it lives only in the credential store).
+/// Build a diagnostic zip under `%LocalAppData%\HWAXAgent\diagnostics\` (v2 §19)
+/// and reveal it in Explorer. Bundles an anonymized `system.json`, `config.json`
+/// (which never holds a token — the device_jwt lives only in the Credential
+/// Manager), the last cached manifest, and the last 7 days of logs. Because the
+/// dump lands under the app-data root it is inside the `opener` capability scope,
+/// so we can reveal it (unlike a `%TEMP%` path).
 #[tauri::command]
 pub fn make_dump(app: AppHandle) -> Result<String, String> {
+    use std::io::Write;
     let state = app.state::<AppState>();
     let cfg = state.config_snapshot();
-    let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S").to_string();
-    let out = std::env::temp_dir().join(format!("hwax-dump-{ts}.json"));
-    // Anonymized summary — no tokens.
-    let summary = json!({
+    let paths = state.paths.clone();
+
+    // Anonymized summary (built while `state` is in scope).
+    let system = json!({
         "agent_version": AGENT_VERSION,
         "server": cfg.server,
         "agent_id": cfg.agent_id,
         "log_level": cfg.log_level,
+        "channel": cfg.channel,
         "last_sync": state.last_sync(),
         "module_count": sync::module_count(&state),
         "error_count": state.error_count(),
+        "os": std::env::consts::OS,
         "generated_at": time::now_rfc3339(),
-        "note": "TODO(phase2): bundle logs/ (last 7 days) + manifest.json into a .zip"
     });
-    std::fs::write(
-        &out,
-        serde_json::to_vec_pretty(&summary).unwrap_or_default(),
-    )
-    .map_err(|e| e.to_string())?;
-    // NOTE: the dump lands in %TEMP%, outside the opener capability scope
-    // ($LOCALDATA/HWAXAgent/**), so we do not auto-reveal it; the UI shows the
-    // returned path. TODO(phase2): write the dump under the app data dir and
-    // reveal it, or widen the opener scope to %TEMP%.
+
+    let ts = chrono::Utc::now().format("%Y%m%dT%H%M%S").to_string();
+    let diag_dir = paths.root.join("diagnostics");
+    std::fs::create_dir_all(&diag_dir).map_err(|e| e.to_string())?;
+    let out = diag_dir.join(format!("hwax-dump-{ts}.zip"));
+
+    let file = std::fs::File::create(&out).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let opts = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    zip.start_file("system.json", opts)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(&serde_json::to_vec_pretty(&system).unwrap_or_default())
+        .map_err(|e| e.to_string())?;
+
+    // config.json (no secrets) + last cached manifest — best-effort.
+    for (name, path) in [
+        ("config.json", paths.config_file.clone()),
+        ("manifest.json", paths.manifest_cache()),
+    ] {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if zip.start_file(name, opts).is_ok() {
+                let _ = zip.write_all(&bytes);
+            }
+        }
+    }
+
+    // Logs from the last 7 days.
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(std::time::Duration::from_secs(7 * 24 * 3600))
+        .unwrap_or(std::time::UNIX_EPOCH);
+    if let Ok(rd) = std::fs::read_dir(&paths.logs) {
+        for entry in rd.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".log") {
+                continue;
+            }
+            let recent = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t >= cutoff)
+                .unwrap_or(true);
+            if recent {
+                if let Ok(bytes) = std::fs::read(entry.path()) {
+                    if zip.start_file(format!("logs/{name}"), opts).is_ok() {
+                        let _ = zip.write_all(&bytes);
+                    }
+                }
+            }
+        }
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+    // diag_dir is under %LocalAppData%\HWAXAgent → within the opener scope.
+    let _ = reveal(&app, &diag_dir);
     Ok(out.to_string_lossy().to_string())
 }
 
