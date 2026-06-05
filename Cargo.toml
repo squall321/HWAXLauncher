@@ -6,7 +6,7 @@
 resolver = "2"
 members = [
     "crates/hwax-core",
-    # "apps/agent/src-tauri",  # added once the Tauri shell is scaffolded
+    "apps/agent/src-tauri",  # the Tauri 2 shell; path-depends on hwax-core
 ]
 
 [workspace.package]

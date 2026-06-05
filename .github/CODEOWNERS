@@ -1,0 +1,30 @@
+# CODEOWNERS — review ownership for HWAXLauncher (HWAX Agent).
+# See docs/CONTRIBUTING.md §8. The HEAXHub-side mirror lives upstream.
+# A PR touching a path below requires review from the listed owner(s).
+
+# Default owner for everything in the repo.
+*                               @squall321
+
+# ── Shared contract surface (vendored from HEAXHub) ──────────────────────
+# A local diff here is almost always a mistake — it should be a `pnpm fetch-schemas`
+# re-sync to a pinned tag, driven by an upstream HEAXHub contract change. Requires
+# explicit review. (In the real cross-repo setup both the HEAXHub lead and the
+# HWAXAgent lead approve; here that is @squall321 wearing both hats.)
+/contracts/                     @squall321
+/contracts/hwax-agent/          @squall321
+
+# ── Security-critical pure logic ─────────────────────────────────────────
+# verify / zip-slip / atomic swap / rollback / origin allow-list. Changes here
+# touch the plan-v2 §15/§17 invariants.
+/crates/hwax-core/              @squall321
+
+# ── Tauri shell security config (allowlist, CSP, capabilities, updater) ───
+/apps/agent/src-tauri/tauri.conf.json   @squall321
+/apps/agent/src-tauri/capabilities/     @squall321
+
+# ── Build / signing / CI / publish — never leak secrets ──────────────────
+/.github/                       @squall321
+/scripts/                       @squall321
+
+# ── Constitution & ops docs ──────────────────────────────────────────────
+/docs/                          @squall321

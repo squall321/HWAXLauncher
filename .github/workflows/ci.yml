@@ -1,0 +1,98 @@
+# CI — fast checks on every push / PR.
+# Runs on windows-latest because HWAXLauncher is a Windows client (Tauri 2 +
+# MSVC). The pure-logic crate (hwax-core) is headless-testable, so the Rust gate
+# does NOT need WebView2 or a Tauri build — that lives in build-and-sign.yml.
+#
+# Forbidden stack (see docs/adr/0001-tauri-2-over-winui3.md): no .NET / C# /
+# WinUI3 step ever appears here.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save Windows runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust (fmt · clippy · test hwax-core)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive   # contracts/hwax-agent is a submodule in real CI
+
+      # rust-toolchain.toml pins the channel + rustfmt/clippy components and the
+      # x86_64-pc-windows-msvc target, so the toolchain is reproducible.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      # -D warnings makes any clippy lint fail the build. all-targets covers tests.
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p hwax-core --all-targets --all-features -- -D warnings
+
+      # Includes tests/schema_conformance.rs — the contract gate. (Also run
+      # standalone in contracts-validate.yml so the gate is named explicitly.)
+      - name: Test hwax-core
+        run: cargo test -p hwax-core --all-features --locked
+
+  web:
+    name: Web (typecheck · build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # corepack activates the pnpm version pinned in package.json (packageManager).
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      # --frozen-lockfile fails if pnpm-lock.yaml is out of date — keeps CI honest.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Sync the vendored contracts to the pinned tag. --check (no network) is a
+      # no-op verify when contracts are committed/submoduled; see the script.
+      - name: Verify vendored contracts
+        run: node scripts/fetch-schemas.mjs --check
+
+      # Recursive scripts: every workspace package that defines them runs.
+      # (Packages without the script are skipped by pnpm -r.)
+      - name: Typecheck
+        run: pnpm -r --if-present typecheck
+
+      - name: Build
+        run: pnpm -r --if-present build

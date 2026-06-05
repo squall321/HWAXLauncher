@@ -1,0 +1,64 @@
+# Contracts validation gate.
+# The wire format lives (vendored) under contracts/hwax-agent/. The Rust model
+# types in hwax-core must serialize to JSON that conforms to those real schemas
+# (Draft 2020-12). That conformance is asserted by
+# crates/hwax-core/tests/schema_conformance.rs, the Rust mirror of HEAXHub's
+# scripts/validate-e2e-examples.py. Running `cargo test -p hwax-core` exercises it.
+#
+# This workflow names the gate explicitly (separate from ci.yml) so a contract
+# drift shows up as a clearly-labelled failing check, and so it can be a required
+# check / branch-protection rule on PRs touching contracts/ or hwax-core.
+name: contracts-validate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - "crates/hwax-core/**"
+      - ".github/workflows/contracts-validate.yml"
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "crates/hwax-core/**"
+      - ".github/workflows/contracts-validate.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  schema-conformance:
+    name: hwax-core ⇄ contracts schema conformance
+    # windows-latest to stay consistent with the rest of CI, though this test is
+    # platform-independent (pure logic + JSON schema validation, no Tauri).
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Guard: contracts/hwax-agent must NOT be hand-edited in a PR. A diff there
+      # should come from `pnpm fetch-schemas` to a pinned tag, not by hand.
+      # (Best-effort signal; the authoritative check is the conformance test.)
+      - name: Verify contracts are an unmodified vendored snapshot
+        run: node scripts/fetch-schemas.mjs --check
+
+      # The actual gate. Fails if any built payload (manifest / install-report /
+      # audit-event) no longer validates against contracts/hwax-agent/*.schema.json.
+      - name: Schema conformance (cargo test -p hwax-core)
+        run: cargo test -p hwax-core --all-features --locked

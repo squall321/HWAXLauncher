@@ -1,0 +1,137 @@
+# Release build, sign, and publish.
+# Produces the per-user NSIS + MSI bundles via `pnpm tauri build`, Authenticode-
+# signs them (Agent exe + installers), computes SHA-256, and uploads to HEAXHub's
+# installer_packages via a presigned PUT (scripts/publish.ps1).
+#
+# SECURITY (plan-v2 §15/§21, split-strategy §8):
+#   - Signing key/cert NEVER live in the repo. They are pulled at build time from
+#     Azure Key Vault via a short-lived OIDC token (AzureSignTool). Every secret
+#     below is a GitHub Actions SECRET — there are NO hardcoded keys/passwords.
+#   - Only release builds are signed (dev builds use a self-signed test cert).
+#   - .gitignore blocks *.key/*.pfx/*.p12/*.pem so no signing artifact is staged.
+name: build-and-sign
+
+on:
+  # Tag-driven release, e.g. v1.0.3. Manual dispatch allowed for dry runs.
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Upload to HEAXHub installer_packages?"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a half-finished release
+
+permissions:
+  contents: read
+  id-token: write   # required for Azure Key Vault OIDC (no long-lived secret)
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-sign-publish:
+    name: Build → sign → sha256 → publish
+    runs-on: windows-latest
+    environment: release   # gate signing secrets behind a protected environment
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify vendored contracts
+        run: node scripts/fetch-schemas.mjs --check
+
+      # Contract + core gate must pass before we cut a signed release.
+      - name: Test hwax-core
+        run: cargo test -p hwax-core --all-features --locked
+
+      # ── Build the bundles ────────────────────────────────────────────────
+      # The Tauri updater signing key (Ed25519, plan-v2 §18) is a SECRET, fed via
+      # env — it is the UPDATE-manifest signature, distinct from the Authenticode
+      # code-signing cert below. Empty/placeholder when the secret is unset.
+      - name: Tauri build (NSIS + MSI)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --bundles nsis msi
+
+      # ── Authenticode sign (AzureSignTool, key from Key Vault via OIDC) ───
+      # scripts/sign.ps1 wraps AzureSignTool. NOTHING here is hardcoded — every
+      # value is a SECRET. The cert/key stay in Key Vault; only a short-lived
+      # token crosses the wire.
+      - name: Sign installers (AzureSignTool)
+        shell: pwsh
+        env:
+          AZURE_KEY_VAULT_URL: ${{ secrets.AZURE_KEY_VAULT_URL }}
+          AZURE_KEY_VAULT_CERT: ${{ secrets.AZURE_KEY_VAULT_CERT }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          # OIDC-preferred; AZURE_CLIENT_SECRET only as a fallback for non-OIDC runners.
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          $bundleRoot = "apps/agent/src-tauri/target/release/bundle"
+          Get-ChildItem -Path $bundleRoot -Recurse -Include *.exe,*.msi |
+            ForEach-Object { ./scripts/sign.ps1 -FilePath $_.FullName }
+
+      # ── SHA-256 of the signed artifacts ─────────────────────────────────
+      - name: Compute SHA-256
+        id: hash
+        shell: pwsh
+        run: |
+          $bundleRoot = "apps/agent/src-tauri/target/release/bundle"
+          $out = "dist-artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Get-ChildItem -Path $bundleRoot -Recurse -Include *.exe,*.msi | ForEach-Object {
+            Copy-Item $_.FullName $out
+            $h = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "$h  $($_.Name)" | Out-File -Append -Encoding utf8 (Join-Path $out "SHA256SUMS.txt")
+          }
+          Get-Content (Join-Path $out "SHA256SUMS.txt")
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwax-agent-installers
+          path: dist-artifacts/
+          if-no-files-found: error
+
+      # ── Publish to HEAXHub installer_packages (presigned PUT) ───────────
+      # Runs on a tag push, or when the manual dispatch sets publish=true.
+      # The publish token is a SECRET; the server base URL is a non-secret var.
+      - name: Publish to HEAXHub
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.publish
+        shell: pwsh
+        env:
+          HEAXHUB_BASE_URL: ${{ vars.HEAXHUB_BASE_URL }}
+          HEAXHUB_PUBLISH_TOKEN: ${{ secrets.HEAXHUB_PUBLISH_TOKEN }}
+        run: |
+          Get-ChildItem -Path dist-artifacts -Include *.exe,*.msi -Recurse | ForEach-Object {
+            $h = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            ./scripts/publish.ps1 `
+              -FilePath $_.FullName `
+              -Sha256 $h `
+              -AppId "hwax-agent" `
+              -Version "${{ github.ref_name }}"
+          }

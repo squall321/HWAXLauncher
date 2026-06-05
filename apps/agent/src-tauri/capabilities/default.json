@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal capability set for the HWAX Agent main window. Only the plugin commands the React UI actually invokes are granted; the rest of the bridge is the Rust #[tauri::command] surface, which is always reachable and is itself the narrow, audited API (v2 plan §10/§15).",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:app:allow-version",
+
+    "updater:default",
+
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
+
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [{ "path": "$LOCALDATA/HWAXAgent/**" }]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$LOCALDATA/HWAXAgent/**" }]
+    }
+  ]
+}

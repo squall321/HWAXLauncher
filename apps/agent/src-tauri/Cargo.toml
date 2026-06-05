@@ -1,0 +1,71 @@
+[package]
+name = "hwax-agent"
+version = "0.1.0"
+description = "HWAX Agent — Tauri 2 tray-resident module deployment/management agent (the Windows client of HEAXHub)."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+default-run = "hwax-agent"
+
+# The binary the OS launches. `lib.rs` holds the real `run()` so the same logic
+# is reachable from integration tests; `main.rs` is a thin shim.
+[[bin]]
+name = "hwax-agent"
+path = "src/main.rs"
+
+# A `staticlib`/`cdylib` is what Tauri's mobile targets want; `lib` keeps the
+# desktop build linking `run()` from `main.rs`. Plain `lib` is enough for Win.
+[lib]
+name = "hwax_agent_lib"
+crate-type = ["lib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# --- the already-built, tested pure-logic crate (DO NOT reimplement its logic) ---
+hwax-core = { path = "../../../crates/hwax-core" }
+
+# --- Tauri 2 shell + the three minimal plugins we actually use ---
+# `tray-icon` gives us the system-tray surface (v2 plan §11.1).
+tauri = { version = "2", features = ["tray-icon"] }
+# Agent self-update via the HEAXHub-hosted updater manifest (v2 plan §18).
+tauri-plugin-updater = "2"
+# Opt-in "start on Windows boot" toggle — never auto-registered (v2 plan §11.2).
+tauri-plugin-autostart = "2"
+# Open the logs *folder* in Explorer. We deliberately use `opener` instead of
+# `shell.open` (which the v2 plan §15 forbids) — it only reveals a path.
+tauri-plugin-opener = "2"
+
+# --- async HTTP (rustls only — no native OpenSSL surface for EDR to flag) ---
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "time", "sync"] }
+futures-util = "0.3"
+
+# --- secrets live in the Windows Credential Manager, never on disk (v2 §12) ---
+keyring = { version = "3", features = ["windows-native"] }
+
+# --- logging / diagnostics (v2 plan §19) ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# --- serde / errors / time / paths ---
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+# Used to recognize on-disk version directories (skip *.staging) in module_detail.
+semver = { workspace = true }
+dirs = "5"
+
+[features]
+# Tauri's `custom-protocol` is required by the production (non-dev) build.
+custom-protocol = ["tauri/custom-protocol"]

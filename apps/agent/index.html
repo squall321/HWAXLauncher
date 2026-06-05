@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      Tight CSP (v2 plan §15 AV/EDR friendliness): no remote script, no inline
+      script (Vite injects its module via the configured nonce in dev only). The
+      production Tauri shell tightens this further in tauri.conf.json. Connections
+      are restricted to the single paired server origin + tauri IPC.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HWAX Agent</title>
+  </head>
+  <body class="bg-hwax-bg text-hwax-text">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

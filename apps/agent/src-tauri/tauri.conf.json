@@ -1,0 +1,72 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "HWAX Agent",
+  "version": "0.1.0",
+  "identifier": "com.heax.hwax-agent",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "HWAX Agent",
+        "width": 480,
+        "height": 640,
+        "minWidth": 360,
+        "minHeight": 480,
+        "resizable": true,
+        "center": true,
+        "decorations": true,
+        "transparent": false,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https://heaxhub.internal; connect-src 'self' https://heaxhub.internal; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    },
+    "trayIcon": {
+      "id": "hwax-tray",
+      "iconPath": "icons/icon.ico",
+      "iconAsTemplate": false,
+      "tooltip": "HWAX Agent"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "HEAXHub Platform Team",
+    "category": "Utility",
+    "shortDescription": "HEAXHub Windows module deployment agent.",
+    "longDescription": "HWAX Agent — a tray-resident agent that deploys, verifies, and manages HEAXHub modules on Windows. Runs as the standard user (asInvoker); writes only under %LocalAppData%\\HWAXAgent.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "windows": {
+        "installMode": "passive"
+      },
+      "endpoints": [
+        "https://heaxhub.internal/api/v1/installers/hwax-agent/latest"
+      ],
+      "pubkey": "PLACEHOLDER_REPLACE_WITH_REAL_ED25519_MINISIGN_PUBKEY=="
+    }
+  }
+}
