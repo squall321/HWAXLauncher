@@ -77,6 +77,11 @@ fs2 = "0.4"
 # Diagnostic-dump zip writer (`make_dump`) — same crate hwax-core already uses.
 zip = { workspace = true }
 
+[dev-dependencies]
+# Mock HEAXHub for the http.rs download integration test (tests/download.rs).
+tiny_http = "0.12"
+tempfile = "3"
+
 [features]
 # Tauri's `custom-protocol` is required by the production (non-dev) build.
 custom-protocol = ["tauri/custom-protocol"]

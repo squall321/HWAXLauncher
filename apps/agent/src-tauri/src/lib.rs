@@ -17,7 +17,9 @@
 mod auth;
 mod commands;
 mod config_store;
-mod http;
+// `pub` so the integration test (tests/download.rs) can drive `download_to`
+// against a mock HEAXHub. Nothing else outside the crate depends on it.
+pub mod http;
 mod installer;
 mod models;
 mod paths;
