@@ -18,6 +18,7 @@ import { useInstallProgress, useModules } from '../hooks';
 import { ModuleCard } from '../components/ModuleCard';
 import { StatusDot } from '../components/StatusDot';
 import { Button } from '../components/Button';
+import { useToast } from '../components/Toast';
 
 interface TrayMainProps {
   status: AgentStatus | null;
@@ -51,6 +52,7 @@ export function TrayMain({
 }: TrayMainProps) {
   const { modules, loading, refresh } = useModules();
   const { byId } = useInstallProgress();
+  const toast = useToast();
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -67,18 +69,20 @@ export function TrayMain({
 
   // Wrap a command so the originating card disables while it resolves; module
   // state then flows back via the `state:changed` event (useModules patches it).
-  const withBusy = (id: string, fn: () => Promise<unknown>) => async () => {
-    setBusyId(id);
-    try {
-      await fn();
-    } catch {
-      // Errors surface through the toast/log layer in the Rust shell; keep the
-      // UI responsive here. A refresh re-reads the authoritative state.
-      void refresh();
-    } finally {
-      setBusyId(null);
-    }
-  };
+  const withBusy =
+    (id: string, fn: () => Promise<unknown>, successMsg?: string) => async () => {
+      setBusyId(id);
+      try {
+        await fn();
+        if (successMsg) toast.push('success', successMsg);
+      } catch (e) {
+        // Surface the IPC error inline and re-read the authoritative state.
+        toast.push('error', String(e));
+        void refresh();
+      } finally {
+        setBusyId(null);
+      }
+    };
 
   const headerColor = status?.status_color ?? 'green';
 
@@ -151,13 +155,17 @@ export function TrayMain({
               progress={byId[m.id] ?? null}
               busy={busyId === m.id}
               onInstall={(mod) =>
-                void withBusy(mod.id, () =>
-                  installModule(mod.id, mod.latest_version ?? ''),
+                void withBusy(
+                  mod.id,
+                  () => installModule(mod.id, mod.latest_version ?? ''),
+                  `${mod.name} ${mod.latest_version ?? ''} 설치 완료`,
                 )()
               }
               onUpdate={(mod) =>
-                void withBusy(mod.id, () =>
-                  installModule(mod.id, mod.latest_version ?? ''),
+                void withBusy(
+                  mod.id,
+                  () => installModule(mod.id, mod.latest_version ?? ''),
+                  `${mod.name} ${mod.latest_version ?? ''} 업데이트 완료`,
                 )()
               }
               onRun={(mod) => void withBusy(mod.id, () => runModule(mod.id))()}

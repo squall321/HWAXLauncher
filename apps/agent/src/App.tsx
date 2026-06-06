@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react';
 import { useAgentStatus, useSync } from './hooks';
 import { ModuleDetail, Pairing, Settings, TrayMain } from './panels';
 import type { AgentStatus } from './ipc/types';
+import { ToastProvider } from './components/Toast';
 
 /**
  * Single-window router. The agent runs one frameless tray panel and swaps the
@@ -16,6 +17,14 @@ type Route =
   | { name: 'pairing' };
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppInner />
+    </ToastProvider>
+  );
+}
+
+function AppInner() {
   const { status, loading, refresh } = useAgentStatus();
   const { sync, syncing } = useSync();
   const [route, setRoute] = useState<Route>({ name: 'tray' });
