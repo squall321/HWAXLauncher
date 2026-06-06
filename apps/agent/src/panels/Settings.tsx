@@ -13,6 +13,7 @@ import type { UpdateInfo } from '../ipc/types';
 import { useConfig } from '../hooks';
 import { Button } from '../components/Button';
 import { Toggle } from '../components/Toggle';
+import { useToast } from '../components/Toast';
 
 interface SettingsProps {
   onBack: () => void;
@@ -25,6 +26,7 @@ const LOG_LEVELS = ['trace', 'debug', 'info', 'warn'] as const;
 /** Settings panel (v2 §4.4). Server address is read-only by design. */
 export function Settings({ onBack, onRepair }: SettingsProps) {
   const { config, loading, saving, save, error } = useConfig();
+  const toast = useToast();
   const [dumpPath, setDumpPath] = useState<string | null>(null);
   const [cacheCleared, setCacheCleared] = useState(false);
   const [working, setWorking] = useState<'dump' | 'cache' | null>(null);
@@ -39,6 +41,8 @@ export function Settings({ onBack, onRepair }: SettingsProps) {
     try {
       setUpdateInfo(await checkUpdate());
       setUpdateChecked(true);
+    } catch (e) {
+      toast.push('error', String(e));
     } finally {
       setCheckingUpdate(false);
     }
@@ -48,8 +52,9 @@ export function Settings({ onBack, onRepair }: SettingsProps) {
     setUpdating(true);
     try {
       await installUpdate(); // on success the agent restarts; this never resolves
-    } catch {
-      setUpdating(false); // only reached if download/verify failed before restart
+    } catch (e) {
+      toast.push('error', String(e)); // only reached if it failed before restart
+      setUpdating(false);
     }
   };
 
@@ -57,6 +62,9 @@ export function Settings({ onBack, onRepair }: SettingsProps) {
     setWorking('dump');
     try {
       setDumpPath(await makeDump());
+      toast.push('success', '진단 dump를 만들었습니다');
+    } catch (e) {
+      toast.push('error', String(e));
     } finally {
       setWorking(null);
     }

@@ -21,6 +21,7 @@ import type { ModuleDetail as ModuleDetailData } from '../ipc/types';
 import { onStateChanged } from '../ipc/events';
 import { Button } from '../components/Button';
 import { StateBadge } from '../components/Badge';
+import { useToast } from '../components/Toast';
 
 interface ModuleDetailProps {
   id: string;
@@ -37,6 +38,7 @@ export function ModuleDetail({ id, onBack }: ModuleDetailProps) {
   const [detail, setDetail] = useState<ModuleDetailData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     try {
@@ -56,13 +58,15 @@ export function ModuleDetail({ id, onBack }: ModuleDetailProps) {
     return () => void p.then((un) => un());
   }, [id, load]);
 
-  const run = async (fn: () => Promise<unknown>) => {
+  const run = async (fn: () => Promise<unknown>, successMsg?: string) => {
     setBusy(true);
     try {
       await fn();
+      if (successMsg) toast.push('success', successMsg);
       await load();
     } catch (e) {
       setError(String(e));
+      toast.push('error', String(e));
     } finally {
       setBusy(false);
     }
@@ -163,7 +167,12 @@ export function ModuleDetail({ id, onBack }: ModuleDetailProps) {
                         size="sm"
                         variant="danger"
                         disabled={busy}
-                        onClick={() => void run(() => rollbackModule(id, h.version))}
+                        onClick={() =>
+                          void run(
+                            () => rollbackModule(id, h.version),
+                            `${h.version}(으)로 롤백했습니다`,
+                          )
+                        }
                       >
                         <RotateCcw size={12} /> 롤백
                       </Button>
@@ -186,11 +195,21 @@ export function ModuleDetail({ id, onBack }: ModuleDetailProps) {
       <footer className="flex flex-wrap items-center gap-1.5 border-t border-hwax-border px-5 py-3">
         {installed &&
           (running ? (
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run(() => stopModule(id))}>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => void run(() => stopModule(id), `${detail.name} 중지됨`)}
+            >
               <Square size={13} /> 중지
             </Button>
           ) : (
-            <Button size="sm" variant="primary" disabled={busy} onClick={() => void run(() => runModule(id))}>
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void run(() => runModule(id), `${detail.name} 실행됨`)}
+            >
               <Play size={13} /> 실행
             </Button>
           ))}
@@ -203,7 +222,7 @@ export function ModuleDetail({ id, onBack }: ModuleDetailProps) {
             variant="danger"
             className="ml-auto"
             disabled={busy}
-            onClick={() => void run(() => uninstallModule(id))}
+            onClick={() => void run(() => uninstallModule(id), `${detail.name} 제거됨`)}
           >
             <Trash2 size={13} /> 제거
           </Button>
