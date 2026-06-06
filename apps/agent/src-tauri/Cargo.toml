@@ -39,6 +39,10 @@ tauri-plugin-autostart = "2"
 # Open the logs *folder* in Explorer. We deliberately use `opener` instead of
 # `shell.open` (which the v2 plan §15 forbids) — it only reveals a path.
 tauri-plugin-opener = "2"
+# Single-instance guard (v2 §5): a 2nd launch focuses the running window and
+# exits, so only one agent/tray ever runs (no duplicate sync/heartbeat loops,
+# no concurrent install race on the same module dir).
+tauri-plugin-single-instance = "2"
 
 # --- async HTTP (rustls only — no native OpenSSL surface for EDR to flag) ---
 reqwest = { version = "0.12", default-features = false, features = [

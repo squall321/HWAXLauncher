@@ -53,6 +53,16 @@ pub fn run() {
     let app_state = AppState::new(config, http, paths);
 
     tauri::Builder::default()
+        // Single-instance guard (v2 §5) — MUST be the first plugin. A 2nd launch
+        // hands its args to the already-running instance (we just focus the panel)
+        // and then exits, so there is never a duplicate tray/agent.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         // Agent self-update (v2 §18). Config (endpoint/pubkey) is in tauri.conf.json.
         .plugin(tauri_plugin_updater::Builder::new().build())
         // Opt-in "start on boot" — registered ONLY when the user toggles it on
