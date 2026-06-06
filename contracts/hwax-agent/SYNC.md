@@ -8,22 +8,27 @@ here are a verbatim snapshot so the launcher can build offline.
 | field | value |
 |---|---|
 | Synced from | `HEAXHub/contracts/hwax-agent/` |
-| Contract version | **0.2.0** (see `CHANGELOG.md` / `VERSION`) |
-| Synced at | 2026-06-06 |
+| Contract version | **0.2.0 + Unreleased** (post-0.2.0 feedback merged via squall321/HEAXHub#1) |
+| Synced at | 2026-06-06 (re-synced after PR #1 merge) |
 | Consumed by | Rust HTTP client (`src-tauri`) + TypeScript types (`packages/schemas`) |
 
-## ⚠ Stack note — the C#/WinUI3 comments upstream are stale
+## Stack note — C#/WinUI3 references removed upstream (resolved)
 
-The upstream `openapi.yaml`, `tokens.css`, and `README.md` contain incidental
-build comments that mention **"C# DTOs / `Heax.Agent.Api`" and a "WinUI3
-launcher"**. Those are **stale** and do **not** apply to this repository.
+Earlier upstream `openapi.yaml`, `tokens.css`, and `README.md` carried incidental
+build comments mentioning **"C# DTOs / `Heax.Agent.Api`" and a "WinUI3 launcher"**
+— stale wording that contradicted the confirmed stack and actually misled an
+HWAXAgent-side LLM into starting a WinUI3/.NET build. Those were **fixed
+upstream in [squall321/HEAXHub#1](https://github.com/squall321/HEAXHub/pull/1)**;
+this synced copy is the **corrected** contract (no C#/WinUI3 wording; the
+`install-report` description uses the right `/api/v1/launcher-agents/installs`
+prefix; `openapi.yaml` now documents the Tauri updater feed
+`GET /api/v1/installers/{app_id}/latest`).
 
 HWAXLauncher (a.k.a. HWAX Agent) is **Tauri 2 + React 18 + TypeScript + Rust**,
-per `docs/hwax-launcher-plan-v2.md` (the implementer's constitution) in the
-HEAXHub repo. We consume these schemas from **Rust** (`jsonschema` crate) and
-**TypeScript** (`ajv`), never from C#. The files are kept byte-for-byte
-identical to upstream on purpose — do not "fix" the comments here; fix them
-upstream so the source of truth stops contradicting the constitution.
+per `docs/hwax-launcher-plan-v2.md` (the implementer's constitution). We consume
+these schemas from **Rust** (`jsonschema` crate) and **TypeScript** (`ajv`),
+never from C#. Keep this copy byte-for-byte identical to upstream — any further
+contract change goes through a HEAXHub PR (split-strategy §6.1), not a local edit.
 
 ## What is authoritative here
 
