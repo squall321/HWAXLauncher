@@ -333,6 +333,68 @@ fn audit_payload_non_object_is_wrapped() {
 }
 
 #[test]
+fn install_report_download_timeout() {
+    // e2e §6.3
+    let r = InstallReport::new(
+        AGENT,
+        "koo_preprocessor",
+        "1.2.0",
+        InstallStatus::Failed,
+        t("2026-06-05T12:00:00Z"),
+        t("2026-06-05T12:05:30Z"),
+    )
+    .sha256_verified(false)
+    .error("download timeout")
+    .log_excerpt("GET .../download\nbytes_read=24117248/188743680 t=300s\nreqwest::Error(Timeout)");
+    assert_valid(
+        "install-report.schema.json",
+        &serde_json::to_value(&r).unwrap(),
+    );
+}
+
+#[test]
+fn audit_install_failed_post_check() {
+    // e2e §6.2 / §8.3 — kind=install, payload.outcome=failed (swap not performed).
+    let a = AuditEvent::new(
+        AGENT,
+        AuditKind::Install,
+        t("2026-06-05T11:04:18Z"),
+        Severity::Error,
+    )
+    .app("koo_preprocessor", "1.2.0")
+    .payload(json!({
+        "outcome": "failed", "stage": "post_install_check",
+        "swap_performed": false, "previous_version": "1.1.0"
+    }))
+    .client_meta(win_meta());
+    assert_valid(
+        "audit-event.schema.json",
+        &serde_json::to_value(&a).unwrap(),
+    );
+}
+
+#[test]
+fn audit_install_partial_enospc() {
+    // e2e §6.4 — kind=install, payload.outcome=partial (disk full mid-download).
+    let a = AuditEvent::new(
+        AGENT,
+        AuditKind::Install,
+        t("2026-06-05T13:24:11Z"),
+        Severity::Error,
+    )
+    .app("koo_preprocessor", "1.2.0")
+    .payload(json!({
+        "outcome": "partial", "stage": "downloading", "errno": "ENOSPC",
+        "free_bytes": 4194304, "required_bytes": 188743680
+    }))
+    .client_meta(win_meta());
+    assert_valid(
+        "audit-event.schema.json",
+        &serde_json::to_value(&a).unwrap(),
+    );
+}
+
+#[test]
 fn enum_wire_strings_are_exact() {
     // Guards the serde rename_all rules against the contract enum strings.
     assert_eq!(

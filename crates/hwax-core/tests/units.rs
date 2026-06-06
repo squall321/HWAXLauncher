@@ -39,6 +39,16 @@ fn origin_explicit_port_must_match() {
 }
 
 #[test]
+fn origin_normalizes_userinfo_and_case() {
+    let allowed = vec!["https://heaxhub.internal".to_string()];
+    // userinfo is stripped; host compare is case-insensitive
+    assert!(is_allowed("https://user:pass@heaxhub.internal/x", &allowed));
+    assert!(is_allowed("https://HEAXHUB.INTERNAL/x", &allowed));
+    // a look-alike suffix must NOT match
+    assert!(!is_allowed("https://heaxhub.internal.evil.com/x", &allowed));
+}
+
+#[test]
 fn ensure_allowed_returns_typed_error() {
     let allowed = vec!["https://heaxhub.internal".to_string()];
     assert!(ensure_allowed("https://heaxhub.internal/x", &allowed).is_ok());
@@ -118,6 +128,14 @@ fn version_state_decisions() {
         is_newer("not-semver", "1.0.0"),
         Err(CoreError::Semver(_, _))
     ));
+
+    // SemVer pre-release ordering: a released 1.2.0 is newer than 1.2.0-beta.1,
+    // so a locally-installed beta is "outdated" once the stable ships.
+    assert!(is_newer("1.2.0", "1.2.0-beta.1").unwrap());
+    assert_eq!(
+        decide_state(Some("1.2.0-beta.1"), "1.2.0").unwrap(),
+        ModuleState::Outdated
+    );
 }
 
 // ── config defaults ───────────────────────────────────────────────────────
