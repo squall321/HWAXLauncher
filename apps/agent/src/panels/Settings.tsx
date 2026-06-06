@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import {
   ArrowLeft,
+  Download,
   FilePlus2,
   Loader2,
   Lock,
   RefreshCcwDot,
   Trash,
 } from 'lucide-react';
-import { clearCache, makeDump } from '../ipc/commands';
+import { checkUpdate, clearCache, installUpdate, makeDump } from '../ipc/commands';
+import type { UpdateInfo } from '../ipc/types';
 import { useConfig } from '../hooks';
 import { Button } from '../components/Button';
 import { Toggle } from '../components/Toggle';
@@ -26,6 +28,30 @@ export function Settings({ onBack, onRepair }: SettingsProps) {
   const [dumpPath, setDumpPath] = useState<string | null>(null);
   const [cacheCleared, setCacheCleared] = useState(false);
   const [working, setWorking] = useState<'dump' | 'cache' | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [updating, setUpdating] = useState(false);
+
+  const onCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    setUpdateChecked(false);
+    try {
+      setUpdateInfo(await checkUpdate());
+      setUpdateChecked(true);
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const onInstallUpdate = async () => {
+    setUpdating(true);
+    try {
+      await installUpdate(); // on success the agent restarts; this never resolves
+    } catch {
+      setUpdating(false); // only reached if download/verify failed before restart
+    }
+  };
 
   const onDump = async () => {
     setWorking('dump');
@@ -144,6 +170,57 @@ export function Settings({ onBack, onRepair }: SettingsProps) {
                   </label>
                 ))}
               </div>
+            </section>
+
+            <Divider />
+
+            {/* Agent self-update (v2 §18) */}
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-hwax-text">에이전트 업데이트</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={checkingUpdate || updating}
+                  onClick={() => void onCheckUpdate()}
+                >
+                  {checkingUpdate ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <RefreshCcwDot size={13} />
+                  )}
+                  업데이트 확인
+                </Button>
+              </div>
+              {updateChecked && !updateInfo && (
+                <p className="text-xs text-hwax-muted">최신 버전입니다.</p>
+              )}
+              {updateInfo && (
+                <div className="rounded-md border border-hwax-accent/30 bg-hwax-accent/10 px-3 py-2">
+                  <p className="text-xs text-hwax-text">
+                    새 버전 <span className="font-mono">{updateInfo.version}</span> 사용 가능{' '}
+                    <span className="text-hwax-muted">(현재 {updateInfo.current_version})</span>
+                  </p>
+                  {updateInfo.notes && (
+                    <p className="mt-1 text-[11px] text-hwax-muted">{updateInfo.notes}</p>
+                  )}
+                  <div className="mt-2">
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      disabled={updating}
+                      onClick={() => void onInstallUpdate()}
+                    >
+                      {updating ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Download size={13} />
+                      )}
+                      지금 업데이트하고 재시작
+                    </Button>
+                  </div>
+                </div>
+              )}
             </section>
 
             {error && (

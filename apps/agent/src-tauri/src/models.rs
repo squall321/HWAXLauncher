@@ -82,6 +82,16 @@ pub struct HealthReport {
     pub write_ok: bool,
 }
 
+/// `check_update()` result — `None` when the agent is already current. The
+/// updater plugin only reports a build whose Ed25519 signature matches the
+/// embedded pubkey (v2 §18).
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateInfo {
+    pub version: String,
+    pub current_version: String,
+    pub notes: Option<String>,
+}
+
 /// `update_config({ patch })` — a partial of `AgentConfig`. Only the
 /// user-tunable, non-secret fields are patchable; `server` and `agent_id` are
 /// intentionally NOT here (they change only via re-pairing — v2 §4.4/§15 ⑧).

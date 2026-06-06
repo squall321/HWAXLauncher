@@ -119,6 +119,13 @@ export interface HealthReport {
   write_ok: boolean;
 }
 
+/** `check_update()` result — null when the agent is already current. */
+export interface UpdateInfo {
+  version: string;
+  current_version: string;
+  notes: string | null;
+}
+
 /* ───────────────────────── Event payloads ───────────────────────── */
 
 export interface InstallProgressEvent {

@@ -16,6 +16,7 @@ import type {
   PairingInfo,
   RunHandle,
   SyncResult,
+  UpdateInfo,
 } from './types';
 
 /* ───────────────────────── Status & pairing ───────────────────────── */
@@ -89,3 +90,11 @@ export const makeDump = (): Promise<string> => invoke('make_dump');
 export const clearCache = (): Promise<void> => invoke('clear_cache');
 
 export const quit = (): Promise<void> => invoke('quit');
+
+/* ───────────────────────── Agent self-update (v2 §18) ───────────────────────── */
+
+/** Returns the available signed update, or null when already current. */
+export const checkUpdate = (): Promise<UpdateInfo | null> => invoke('check_update');
+
+/** Downloads + applies the update, then the agent restarts (never resolves). */
+export const installUpdate = (): Promise<void> => invoke('install_update');

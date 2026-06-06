@@ -92,6 +92,9 @@ pub fn run() {
             commands::make_dump,
             commands::clear_cache,
             commands::quit,
+            // agent self-update (v2 §18)
+            commands::check_update,
+            commands::install_update,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

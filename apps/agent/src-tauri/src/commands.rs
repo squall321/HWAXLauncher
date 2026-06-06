@@ -16,6 +16,7 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_updater::UpdaterExt;
 
 /// Registry of currently-running module child processes, keyed by module id, so
 /// `stop_module` can terminate what `run_module` spawned (v2 §14).
@@ -714,6 +715,43 @@ pub fn clear_cache(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// agent self-update (v2 §18)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Check the HEAXHub-hosted updater feed for a newer **signed** agent build.
+/// Returns `None` when already current. The plugin verifies the Ed25519
+/// signature against the pubkey in tauri.conf.json before reporting an update,
+/// so a tampered/unsigned build is never offered.
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    match updater.check().await.map_err(|e| e.to_string())? {
+        Some(u) => Ok(Some(UpdateInfo {
+            version: u.version.clone(),
+            current_version: u.current_version.clone(),
+            notes: u.body.clone(),
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Download + apply the available update (signature-verified by the plugin),
+/// then restart into the new build. Errors if already current.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|e| e.to_string())?;
+    let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
+        return Err("already up to date".into());
+    };
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    // Diverges: relaunches the process into the freshly installed build.
+    app.restart()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
