@@ -91,7 +91,7 @@ jobs:
           # OIDC-preferred; AZURE_CLIENT_SECRET only as a fallback for non-OIDC runners.
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
         run: |
-          $bundleRoot = "apps/agent/src-tauri/target/release/bundle"
+          $bundleRoot = "target/release/bundle"   # workspace-root target (src-tauri is a workspace member)
           Get-ChildItem -Path $bundleRoot -Recurse -Include *.exe,*.msi |
             ForEach-Object { ./scripts/sign.ps1 -FilePath $_.FullName }
 
@@ -100,7 +100,7 @@ jobs:
         id: hash
         shell: pwsh
         run: |
-          $bundleRoot = "apps/agent/src-tauri/target/release/bundle"
+          $bundleRoot = "target/release/bundle"   # workspace-root target (src-tauri is a workspace member)
           $out = "dist-artifacts"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Get-ChildItem -Path $bundleRoot -Recurse -Include *.exe,*.msi | ForEach-Object {
