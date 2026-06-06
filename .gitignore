@@ -31,6 +31,9 @@ tauri-signing-key*
 *.tauri-key
 secrets/
 **/private.key
+# Local Tauri updater signing key dir (private key lives here; move it to a CI
+# secret TAURI_SIGNING_PRIVATE_KEY for release builds — never commit it).
+.tauri/
 
 # ── OS / editor ───────────────────────────────────────────────
 .DS_Store
