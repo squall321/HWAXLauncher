@@ -25,6 +25,7 @@ mod state;
 mod sync;
 mod telemetry;
 mod tray;
+mod ws;
 
 use crate::paths::Paths;
 use crate::state::AppState;
@@ -107,6 +108,10 @@ pub fn run() {
             // Background loops: periodic manifest sync (§13) + audit batch (§19).
             sync::spawn_loop(handle.clone());
             telemetry::spawn_batch_loop(handle.clone());
+
+            // Optional WebSocket push (§13): resync instantly on a server push;
+            // the poll above remains the correctness fallback.
+            ws::spawn_loop(handle.clone());
 
             // Heartbeat loop (openapi /heartbeat; v2 §13: 30-min alive ping).
             spawn_heartbeat_loop(handle.clone());

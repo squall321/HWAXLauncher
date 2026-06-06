@@ -48,6 +48,8 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "time", "sync"] }
 futures-util = "0.3"
+# Optional WebSocket push (v2 §13) — rustls + Windows trust store (no OpenSSL).
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 
 # --- secrets live in the Windows Credential Manager, never on disk (v2 §12) ---
 keyring = { version = "3", features = ["windows-native"] }
