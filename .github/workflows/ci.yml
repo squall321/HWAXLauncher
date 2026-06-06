@@ -96,3 +96,58 @@ jobs:
 
       - name: Build
         run: pnpm -r --if-present build
+
+  # Compiles + lints the Tauri shell. Separate from the `rust` job because
+  # `tauri::generate_context!` needs the built frontend (apps/agent/dist) to
+  # exist, so we build the web bundle first.
+  shell:
+    name: Tauri shell (compile · clippy)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable corepack (pnpm)
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # frontendDist ("../dist") must exist before generate_context! runs.
+      - name: Build frontend
+        run: pnpm --filter @hwax/agent build
+
+      - name: Clippy the Tauri shell (deny warnings)
+        run: cargo clippy -p hwax-agent --all-targets -- -D warnings
+
+  # Hard gate: no signing key / certificate material may ever be tracked.
+  # The updater private key lives in .tauri/ (git-ignored); this fails the build
+  # if it — or any *.key/*.pfx/*.pem — slips into the index.
+  secrets-guard:
+    name: No key material committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert no key/cert is tracked
+        shell: bash
+        run: |
+          hits="$(git ls-files | grep -E '\.(key|pfx|p12|pem|snk)$|(^|/)\.tauri/|hwax-updater' || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::Key material is tracked in git:"; echo "$hits"
+            exit 1
+          fi
+          echo "OK: no key/cert material tracked."
