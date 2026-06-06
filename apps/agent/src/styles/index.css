@@ -3,6 +3,20 @@
 @tailwind utilities;
 
 /*
+ * Pretendard Variable — bundled at public/fonts/ (served by Tauri's
+ * custom-protocol from dist/), SIL OFL 1.1 (see public/fonts/Pretendard-OFL.txt).
+ * Self-hosted so the agent renders in the brand font on every machine instead
+ * of silently falling back to system-ui. One variable file covers all weights.
+ */
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/PretendardVariable.woff2') format('woff2');
+}
+
+/*
  * Design tokens — verbatim mirror of contracts/hwax-agent/tokens.css.
  * Tailwind (tailwind.config.ts) references these custom properties, so this
  * block is the only place the raw palette lives in the React app. Dark only.
