@@ -22,7 +22,7 @@ URL** (no free-form URL input). See "Posture" below.
 | 1 | **Install folder** | per-user install path, e.g. `%LocalAppData%\Programs\HWAXAgent\` (and runtime data `%LocalAppData%\HWAXAgent\`) |
 | 2 | **Process name** | `HWAXAgent.exe` |
 | 3 | **Signing certificate thumbprint** | `<SHA-1 / SHA-256 thumbprint of the code-signing cert>` — see "Signing posture" |
-| 4 | **Download domain** | the HEAXHub on-prem host, e.g. `heaxhub.local` (must match `config.allowed_origins`) |
+| 4 | **Download domain** | the **HWAX Portal** host `hwax.sec.samsung.net` (launcher connects via the portal under `/heax-hub`; CSP + `config.allowed_origins` use origin `https://hwax.sec.samsung.net`) |
 
 > Items 1–2 scope the Agent process; item 3 lets the EDR trust *anything we sign*
 > (Agent + module exes) by publisher; item 4 stops the EDR from silently dropping
@@ -61,7 +61,7 @@ Get-AuthenticodeSignature 'HWAXAgent.exe' | Format-List *
 ### 4. Download domain
 The Agent downloads installers **only** from origins listed in
 `config.allowed_origins`, which is set at pairing time to the HEAXHub server origin
-(e.g. `https://heaxhub.local`). A user **cannot** type an arbitrary URL
+(`https://hwax.sec.samsung.net` — the launcher targets the **HWAX Portal**, which reverse-proxies HEAXHub under `/heax-hub` and strips the prefix). A user **cannot** type an arbitrary URL
 (plan-v2 §4.4 / §15 item ⑧). Allow-list this single domain for both the API
 endpoints (`/api/v1/launcher-agents/*`, `/api/v1/installers/{id}/download`) and the
 presigned object-storage host the download 302-redirects to.
@@ -115,7 +115,7 @@ Process           : HWAXAgent.exe   (single per-user process, asInvoker, no admi
 Install path      : %LocalAppData%\Programs\HWAXAgent\
 Runtime data path : %LocalAppData%\HWAXAgent\  (modules\, cache\, logs\)
 Publisher / cert  : <internal PKI / EV thumbprint>     ← preferred allow-list rule
-Network domain    : https://heaxhub.local  (API + presigned installer downloads)
+Network domain    : https://hwax.sec.samsung.net  (HWAX Portal /heax-hub → API + presigned installer downloads)
 Integrity         : every package SHA-256-verified before extract/execute
 Privilege         : standard user; writes confined to %LocalAppData%
 ```

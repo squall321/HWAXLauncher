@@ -59,7 +59,7 @@ pub fn start_pairing(state: State<'_, AppState>) -> Result<PairingInfo, String> 
     // Before first pairing `server` may be empty; fall back to the on-prem
     // default. The user never types this URL — it is fixed by deployment.
     let server = if cfg.server.is_empty() {
-        "https://heaxhub.internal".to_string()
+        "https://hwax.sec.samsung.net/heax-hub".to_string()
     } else {
         cfg.server.clone()
     };
@@ -86,7 +86,7 @@ pub async fn complete_pairing(
     let state = app.state::<AppState>();
     let existing = state.config_snapshot();
     let server = if existing.server.is_empty() {
-        "https://heaxhub.internal".to_string()
+        "https://hwax.sec.samsung.net/heax-hub".to_string()
     } else {
         existing.server.clone()
     };

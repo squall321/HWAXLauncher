@@ -28,7 +28,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://heaxhub.internal; connect-src 'self' https://heaxhub.internal; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; img-src 'self' data: https://hwax.sec.samsung.net; connect-src 'self' https://hwax.sec.samsung.net; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     },
     "trayIcon": {
       "id": "hwax-tray",
@@ -63,7 +63,7 @@
         "installMode": "passive"
       },
       "endpoints": [
-        "https://heaxhub.internal/api/v1/installers/hwax-agent/latest"
+        "https://hwax.sec.samsung.net/heax-hub/api/v1/installers/hwax-agent/latest"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQxNTJDNzA0RDczNkUzNEYKUldSUDR6YlhCTWRTMGRYMnUwNHpyRTg0Y0pvMnFldldic0Jjbm5aZUNEWXNmc3Vwbit0dFVFMEYK"
     }

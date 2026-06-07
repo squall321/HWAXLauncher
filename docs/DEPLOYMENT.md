@@ -41,7 +41,7 @@ Set these once; `build-and-sign.yml` consumes them. **Nothing is hardcoded.**
 | `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` | secret | OIDC identity for AzureSignTool | app registration |
 | `AZURE_CLIENT_SECRET` | secret | non-OIDC fallback only | optional |
 | `HEAXHUB_PUBLISH_TOKEN` | secret | upload to `installer_packages` | HEAXHub admin |
-| `HEAXHUB_BASE_URL` | **variable** | server base URL (non-secret) | e.g. `https://heaxhub.internal` |
+| `HEAXHUB_BASE_URL` | **variable** | server base URL (non-secret) | e.g. `https://hwax.sec.samsung.net/heax-hub` |
 
 Also create the protected **`release`** environment (the signing job gates on it).
 
@@ -60,10 +60,14 @@ updater signature against the committed pubkey.
 
 ## 4. Per-environment values to finalize before first prod release
 
-- **Server domain:** `heaxhub.internal` is the placeholder. The real on-prem
-  domain must be the agent's `config.server` (set at pairing) and appear in the
-  `tauri.conf.json` CSP `connect-src` / `img-src` and the installer download
-  origin allow-list.
+- **Server domain (wired to the HWAX Portal):** the launcher connects via the
+  **HWAX Portal** at `https://hwax.sec.samsung.net/heax-hub` (the portal strips the
+  `/heax-hub` prefix before HEAXHub/Caddy; see HEAXHub `docs/HWAX-PORTAL-INTEGRATION.md`).
+  `tauri.conf.json` (updater endpoint + CSP `connect-src`/`img-src`) and the
+  pre-pairing fallback now use this host. `config.server` is set at pairing and may
+  carry the `/heax-hub` sub-path — the agent appends `/api/v1/...`, so the
+  portal-stripped path resolves; the origin allow-list compares scheme+host only,
+  so the sub-path is fine.
 - **EDR/AV whitelist:** fill the 4 values (install path, `HWAXAgent.exe`, cert
   thumbprint, download domain) — see [EDR-WHITELIST.md](EDR-WHITELIST.md) — and
   submit to the security team **before** rollout, or installs will be quarantined.
