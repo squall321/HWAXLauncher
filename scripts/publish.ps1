@@ -8,7 +8,8 @@
     One-step publish (no signing key, no long-lived credential in the payload):
 
       POST {base}/api/v1/apps/{AppId}/installers as multipart/form-data with the
-      fields `version`, `os`, `signed` and the file under field name `installer`.
+      fields `version`, `os`, `signed`, the file under field name `installer`,
+      and (optionally) the Tauri minisign `.sig` under field name `signature`.
       HEAXHub streams the bytes to its installer store, computes the SHA-256
       itself, and returns the package row JSON
       { id, app_id, version, os, installer_url, sha256, size_bytes, signed }.
@@ -64,7 +65,14 @@ param(
     [string]$Version,
 
     [Parameter(Mandatory = $false)]
-    [string]$Os = 'windows-x64'
+    [string]$Os = 'windows-x64',
+
+    # Tauri minisign signature (what `tauri build` emits, e.g. "<file>.sig") —
+    # uploaded so the updater feed (/api/v1/installers/hwax-agent/latest) can
+    # serve a verifiable self-update. Defaults to "<FilePath>.sig" if present.
+    # This is NOT the Authenticode signature (that is embedded in the .exe).
+    [Parameter(Mandatory = $false)]
+    [string]$SignaturePath
 )
 
 Set-StrictMode -Version Latest
@@ -106,37 +114,63 @@ if ($actual -ne $Sha256.ToLower()) {
     throw "Local SHA-256 mismatch for '$fileName': expected $Sha256, computed $actual."
 }
 
+# Resolve the optional Tauri minisign .sig: explicit -SignaturePath wins, else
+# auto-detect "<FilePath>.sig". Absent ⇒ upload installer only (the feed will
+# 204 until a signed build is published).
+if ([string]::IsNullOrWhiteSpace($SignaturePath)) {
+    $maybeSig = "$FilePath.sig"
+    if (Test-Path -LiteralPath $maybeSig) {
+        $SignaturePath = (Resolve-Path -LiteralPath $maybeSig).Path
+    }
+}
+elseif (-not (Test-Path -LiteralPath $SignaturePath)) {
+    throw "Signature file not found: $SignaturePath"
+}
+
 Write-Host "[publish] $fileName  ($sizeBytes bytes)  app=$AppId  version=$cleanVersion"
 
 # ── Upload: single multipart POST to /api/v1/apps/{AppId}/installers ──────────
 # Windows PowerShell 5.1's Invoke-RestMethod has no -Form, so build the
-# multipart/form-data body by hand. iso-8859-1 (latin1) round-trips raw bytes
-# 1:1 through a .NET string, so the binary file body survives intact.
+# multipart/form-data body by hand into a MemoryStream. iso-8859-1 (latin1)
+# round-trips raw bytes 1:1 through a .NET string, so text parts stay text while
+# the binary file parts are written as raw bytes.
 $uploadUri = "$baseUrl/api/v1/apps/$AppId/installers"
 $boundary  = [System.Guid]::NewGuid().ToString()
 $LF        = "`r`n"
 $enc       = [System.Text.Encoding]::GetEncoding('iso-8859-1')
-$fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
+$ms        = New-Object System.IO.MemoryStream
 
-$sb = New-Object System.Text.StringBuilder
+function Add-Text {
+    param([System.IO.MemoryStream]$Stream, [System.Text.Encoding]$Enc, [string]$Text)
+    $b = $Enc.GetBytes($Text); $Stream.Write($b, 0, $b.Length)
+}
+function Add-FilePart {
+    param([System.IO.MemoryStream]$Stream, [System.Text.Encoding]$Enc,
+          [string]$Boundary, [string]$Lf, [string]$Name, [string]$Path)
+    $name = [System.IO.Path]::GetFileName($Path)
+    Add-Text $Stream $Enc "--$Boundary$Lf"
+    Add-Text $Stream $Enc "Content-Disposition: form-data; name=`"$Name`"; filename=`"$name`"$Lf"
+    Add-Text $Stream $Enc "Content-Type: application/octet-stream$Lf$Lf"
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    $Stream.Write($bytes, 0, $bytes.Length)
+    Add-Text $Stream $Enc $Lf
+}
+
 foreach ($field in @(
         @{ name = 'version'; value = $cleanVersion },
         @{ name = 'os';      value = $Os },
         @{ name = 'signed';  value = 'true' })) {
-    [void]$sb.Append("--$boundary$LF")
-    [void]$sb.Append("Content-Disposition: form-data; name=`"$($field.name)`"$LF$LF")
-    [void]$sb.Append("$($field.value)$LF")
+    Add-Text $ms $enc "--$boundary$LF"
+    Add-Text $ms $enc "Content-Disposition: form-data; name=`"$($field.name)`"$LF$LF"
+    Add-Text $ms $enc "$($field.value)$LF"
 }
-[void]$sb.Append("--$boundary$LF")
-[void]$sb.Append("Content-Disposition: form-data; name=`"installer`"; filename=`"$fileName`"$LF")
-[void]$sb.Append("Content-Type: application/octet-stream$LF$LF")
-
-$prologue = $enc.GetBytes($sb.ToString())
-$epilogue = $enc.GetBytes("$LF--$boundary--$LF")
-$body = New-Object byte[] ($prologue.Length + $fileBytes.Length + $epilogue.Length)
-[System.Buffer]::BlockCopy($prologue, 0, $body, 0, $prologue.Length)
-[System.Buffer]::BlockCopy($fileBytes, 0, $body, $prologue.Length, $fileBytes.Length)
-[System.Buffer]::BlockCopy($epilogue, 0, $body, $prologue.Length + $fileBytes.Length, $epilogue.Length)
+Add-FilePart $ms $enc $boundary $LF 'installer' $FilePath
+if (-not [string]::IsNullOrWhiteSpace($SignaturePath)) {
+    Add-FilePart $ms $enc $boundary $LF 'signature' $SignaturePath
+    Write-Host "[publish] including signature: $([System.IO.Path]::GetFileName($SignaturePath))"
+}
+Add-Text $ms $enc "--$boundary--$LF"
+$body = $ms.ToArray()
 
 $authHeaders = @{ Authorization = "Bearer $token" }
 

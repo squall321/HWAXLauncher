@@ -721,13 +721,45 @@ pub fn quit(app: AppHandle) {
 // agent self-update (v2 §18)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Check the HEAXHub-hosted updater feed for a newer **signed** agent build.
-/// Returns `None` when already current. The plugin verifies the Ed25519
-/// signature against the pubkey in tauri.conf.json before reporting an update,
-/// so a tampered/unsigned build is never offered.
+/// Build an updater whose feed endpoint is derived from the paired
+/// `config.server` (so a non-default portal deployment self-updates from its OWN
+/// server, not a hardcoded host) and which carries the device access token. The
+/// feed's `platforms[*].url` points at the bearer-protected installer download
+/// (HEAXHub `GET /api/v1/installers/{id}/download`, aud=hwax-agent), so the
+/// updater must send `Authorization` on the feed AND the download hop. When the
+/// agent is not yet paired we fall back to the static endpoint/no-auth from
+/// tauri.conf.json. The Ed25519 signature is still verified by the plugin
+/// against the pinned pubkey regardless of where the feed came from.
+fn updater_for(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
+    let server = app
+        .state::<AppState>()
+        .config_snapshot()
+        .server
+        .trim_end_matches('/')
+        .to_string();
+    let mut builder = app.updater_builder();
+    if !server.is_empty() {
+        let endpoint = format!("{server}/api/v1/installers/hwax-agent/latest");
+        let url = endpoint
+            .parse::<reqwest::Url>()
+            .map_err(|e| format!("invalid updater endpoint {endpoint}: {e}"))?;
+        builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+    }
+    if let Ok(Some(token)) = crate::auth::access_token() {
+        builder = builder
+            .header("Authorization", format!("Bearer {token}"))
+            .map_err(|e| e.to_string())?;
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
+/// Check the HEAXHub updater feed for a newer **signed** agent build. Returns
+/// `None` when already current. The plugin verifies the Ed25519 signature
+/// against the pubkey in tauri.conf.json before reporting an update, so a
+/// tampered/unsigned build is never offered.
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = updater_for(&app)?;
     match updater.check().await.map_err(|e| e.to_string())? {
         Some(u) => Ok(Some(UpdateInfo {
             version: u.version.clone(),
@@ -742,7 +774,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
 /// then restart into the new build. Errors if already current.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = updater_for(&app)?;
     let Some(update) = updater.check().await.map_err(|e| e.to_string())? else {
         return Err("already up to date".into());
     };
