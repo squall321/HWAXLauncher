@@ -64,7 +64,7 @@ pub async fn fetch_manifest(
     server: &str,
     prev_etag: Option<&str>,
 ) -> Result<ManifestFetch> {
-    let url = route(server, "/api/v1/launcher-agents/manifest?os=windows-x64");
+    let url = route(server, "/api/v1/launcher-agents/manifest");
     let etag_owned = prev_etag.map(|s| s.to_string());
     let resp = authed(http, server, |c, token| {
         let mut rb = c.get(&url).bearer_auth(token);
@@ -85,6 +85,16 @@ pub async fn fetch_manifest(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
     let manifest: Manifest = resp.json().await.context("decoding manifest body")?;
+    // schema_version is `const: 1` in the contract — the one field we hard-assert.
+    // Refusing an unknown version keeps the prior good cache (the caller falls back
+    // to it) rather than consuming a breaking/incompatible manifest as if it were v1.
+    if manifest.schema_version != Manifest::SCHEMA_VERSION {
+        bail!(
+            "unsupported manifest schema_version {} (this agent supports {})",
+            manifest.schema_version,
+            Manifest::SCHEMA_VERSION
+        );
+    }
     Ok(ManifestFetch::Modified { manifest, etag })
 }
 
@@ -93,11 +103,14 @@ pub async fn fetch_manifest(
 ///
 /// `url` MUST already be origin-allow-listed by the caller. Token handling is
 /// explicit (e2e §9 #6): the device JWT is attached ONLY when `url` shares the
-/// server's origin (the installer endpoint, which 302s to a presigned
-/// object-storage URL). reqwest's default redirect policy then strips
-/// `Authorization` on the cross-origin hop, so the token never reaches the
-/// storage host — and because we never bearer a non-server origin in the first
-/// place, a later change to the redirect policy cannot leak it either.
+/// server's origin (the `/installers/{id}/download` endpoint, which requires
+/// `aud=hwax-agent`). That endpoint returns the installer bytes directly (200)
+/// in the on-prem disk deployment, or 302s to a presigned object-storage URL in
+/// a future deployment — this function handles BOTH transparently: reqwest
+/// follows the redirect by default and streams whichever body arrives, and on
+/// the cross-origin redirect hop it strips `Authorization` so the token never
+/// reaches the storage host. Because we never bearer a non-server origin in the
+/// first place, a later change to the redirect policy cannot leak it either.
 pub async fn download_to<P: FnMut(u64, Option<u64>)>(
     http: &reqwest::Client,
     server: &str,
@@ -215,6 +228,14 @@ async fn post_json<T: Serialize>(
     })
     .await?;
     let status = resp.status();
+    if status == reqwest::StatusCode::NOT_IMPLEMENTED {
+        // installs/audit/heartbeat are Phase-2 server stubs (501) today. Treat a
+        // 501 as a soft no-op so the agent neither logs it as an error nor
+        // retry-storms — once the server implements these they return 2xx and
+        // this path is never taken (v2 §3 graceful degradation).
+        tracing::debug!(path, "endpoint not implemented on server yet (501); skipping");
+        return Ok(());
+    }
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         bail!("POST {path} → {status}: {text}");

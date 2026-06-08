@@ -24,6 +24,19 @@ pub fn read_cached_manifest(state: &AppState) -> Option<Manifest> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Compare two manifests by catalog content (the `programs` list), ignoring
+/// `generated_at` — so re-fetching an unchanged catalog is not reported as a
+/// change. Falls back to "not equal" if either fails to serialize.
+fn programs_eq(a: &Manifest, b: &Manifest) -> bool {
+    match (
+        serde_json::to_value(&a.programs),
+        serde_json::to_value(&b.programs),
+    ) {
+        (Ok(va), Ok(vb)) => va == vb,
+        _ => false,
+    }
+}
+
 /// Read the stored ETag (`cache/manifest.etag`), if any.
 fn read_cached_etag(state: &AppState) -> Option<String> {
     std::fs::read_to_string(state.paths.manifest_etag())
@@ -57,10 +70,19 @@ pub async fn sync_now(app: &AppHandle) -> Result<SyncResult> {
 
     let changed = match result {
         Ok(crate::http::ManifestFetch::Modified { manifest, etag }) => {
+            // The server does not emit an ETag yet, so a conditional GET always
+            // returns a full 200. Decide "changed" by catalog CONTENT (the
+            // programs list) instead of assuming every body is new — otherwise
+            // the UI would flag an update on every sync tick. `generated_at` is
+            // deliberately excluded: it moves on each server-side rebuild even
+            // when the catalog is identical.
+            let content_changed = read_cached_manifest(&state)
+                .map(|prev| !programs_eq(&prev, &manifest))
+                .unwrap_or(true);
             write_cache(&state, &manifest, etag.as_deref())?;
             state.consecutive_sync_failures.store(0, Ordering::Relaxed);
             state.server_reachable.store(true, Ordering::Relaxed);
-            true
+            content_changed
         }
         Ok(crate::http::ManifestFetch::NotModified) => {
             state.consecutive_sync_failures.store(0, Ordering::Relaxed);

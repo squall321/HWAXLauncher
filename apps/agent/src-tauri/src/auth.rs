@@ -151,6 +151,15 @@ pub async fn enroll(
             "enrollment_token unknown, expired, or already redeemed"
         ));
     }
+    if resp.status() == reqwest::StatusCode::FORBIDDEN {
+        // The server returns 403 when the registered agent is device_kind=service
+        // rather than launcher — give the operator an actionable message instead
+        // of a generic HTTP error.
+        return Err(anyhow!(
+            "this device is registered as a service agent, not a launcher — \
+             re-register it in HEAXHub as a launcher device (device_kind=launcher)"
+        ));
+    }
     let resp = resp
         .error_for_status()
         .context("enroll returned an error status")?;
@@ -176,10 +185,27 @@ pub async fn refresh(http: &reqwest::Client, server: &str) -> Result<String> {
         })
         .send()
         .await
-        .context("refresh request failed")?
-        .error_for_status()
-        .context("refresh rejected — re-pairing required")?;
+        .context("refresh request failed")?;
+    // A 401 means the submitted refresh token was rejected. Refresh tokens are
+    // single-use and rotating, so a replayed/expired one makes the server revoke
+    // the WHOLE chain — both stored secrets are now permanently dead. Wipe them
+    // so we never replay a revoked token, and force a clean re-pairing.
+    if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
+        let _ = clear_tokens();
+        return Err(anyhow!(
+            "refresh token revoked or expired — re-pairing required"
+        ));
+    }
+    let resp = resp.error_for_status().context("refresh rejected")?;
     let result: RefreshResult = resp.json().await.context("decoding RefreshResult")?;
-    store_refreshed(&result.access_token, result.refresh_token.as_deref())?;
+    // Phase 1 ALWAYS rotates (openapi: "Present when rotation occurred (always,
+    // in Phase 1)"). After a 200 the token we just sent is dead, so a response
+    // without a replacement would strand the agent on the next refresh — treat a
+    // missing rotated token as a protocol error rather than silently keeping the
+    // now-revoked one.
+    let new_refresh = result.refresh_token.ok_or_else(|| {
+        anyhow!("/refresh succeeded but did not rotate the refresh_token")
+    })?;
+    store_refreshed(&result.access_token, Some(&new_refresh))?;
     Ok(result.access_token)
 }

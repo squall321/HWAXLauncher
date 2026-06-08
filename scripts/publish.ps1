@@ -1,28 +1,33 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Upload a signed installer to HEAXHub's installer_packages via a presigned
-    PUT, then register the package metadata (version + SHA-256).
+    Upload a signed installer to HEAXHub via a single multipart POST to
+    /api/v1/apps/{AppId}/installers.
 
 .DESCRIPTION
-    Two-step publish (no signing key, no long-lived credential in the payload):
+    One-step publish (no signing key, no long-lived credential in the payload):
 
-      1. Ask HEAXHub for a presigned PUT URL for this artifact. HEAXHub records
-         the package row (app_id, version, sha256, size_bytes, signed=true) and
-         returns a short-lived URL to object storage.
-      2. PUT the file bytes directly to that presigned URL (object storage),
-         bypassing the API for the large transfer.
+      POST {base}/api/v1/apps/{AppId}/installers as multipart/form-data with the
+      fields `version`, `os`, `signed` and the file under field name `installer`.
+      HEAXHub streams the bytes to its installer store, computes the SHA-256
+      itself, and returns the package row JSON
+      { id, app_id, version, os, installer_url, sha256, size_bytes, signed }.
 
-    Mirrors the build pipeline in HEAXHub plan-v2 §21 and split-strategy §8.1:
-    HEAXHub holds NO signing key — it only stores the SHA-256 and a `signed`
-    flag; the signature is already baked into the artifact by scripts/sign.ps1.
+    HEAXHub holds NO signing key — the signature is already baked into the
+    artifact by scripts/sign.ps1; HEAXHub only records the SHA-256 and a `signed`
+    flag. We re-verify the server-returned SHA-256 against the local hash so a
+    corrupted upload is caught immediately.
+
+    NOTE: the earlier presigned two-step (POST /api/v1/installers -> upload_url ->
+    PUT to object storage) was never implemented server-side. The current
+    deployment stores installers on local disk behind the multipart endpoint
+    above (HEAXHub installers.py `upload_installer`).
 
     Auth: a bearer publish token from the environment ($env:HEAXHUB_PUBLISH_TOKEN,
-    a CI SECRET). The presigned URL itself carries its own signature, so the file
-    PUT sends no bearer. NOTHING is hardcoded here.
+    a CI SECRET). NOTHING is hardcoded here.
 
     Required environment variables:
-      HEAXHUB_BASE_URL        e.g. https://heaxhub.local   (non-secret VAR)
+      HEAXHUB_BASE_URL        e.g. https://hwax.sec.samsung.net/heax-hub (non-secret VAR)
       HEAXHUB_PUBLISH_TOKEN   bearer token for the publish API (SECRET)
 
 .PARAMETER FilePath
@@ -56,7 +61,10 @@ param(
     [string]$AppId = 'hwax-agent',
 
     [Parameter(Mandatory = $true)]
-    [string]$Version
+    [string]$Version,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Os = 'windows-x64'
 )
 
 Set-StrictMode -Version Latest
@@ -100,33 +108,52 @@ if ($actual -ne $Sha256.ToLower()) {
 
 Write-Host "[publish] $fileName  ($sizeBytes bytes)  app=$AppId  version=$cleanVersion"
 
-# ── Step 1: register the package row and get a presigned PUT URL ──────────────
-$registerUri = "$baseUrl/api/v1/installers"
-$registerBody = @{
-    app_id      = $AppId
-    version     = $cleanVersion
-    file_name   = $fileName
-    sha256      = $Sha256.ToLower()
-    size_bytes  = $sizeBytes
-    signed      = $true
-    format      = ([System.IO.Path]::GetExtension($fileName)).TrimStart('.').ToLower()
-} | ConvertTo-Json -Compress
+# ── Upload: single multipart POST to /api/v1/apps/{AppId}/installers ──────────
+# Windows PowerShell 5.1's Invoke-RestMethod has no -Form, so build the
+# multipart/form-data body by hand. iso-8859-1 (latin1) round-trips raw bytes
+# 1:1 through a .NET string, so the binary file body survives intact.
+$uploadUri = "$baseUrl/api/v1/apps/$AppId/installers"
+$boundary  = [System.Guid]::NewGuid().ToString()
+$LF        = "`r`n"
+$enc       = [System.Text.Encoding]::GetEncoding('iso-8859-1')
+$fileBytes = [System.IO.File]::ReadAllBytes($FilePath)
+
+$sb = New-Object System.Text.StringBuilder
+foreach ($field in @(
+        @{ name = 'version'; value = $cleanVersion },
+        @{ name = 'os';      value = $Os },
+        @{ name = 'signed';  value = 'true' })) {
+    [void]$sb.Append("--$boundary$LF")
+    [void]$sb.Append("Content-Disposition: form-data; name=`"$($field.name)`"$LF$LF")
+    [void]$sb.Append("$($field.value)$LF")
+}
+[void]$sb.Append("--$boundary$LF")
+[void]$sb.Append("Content-Disposition: form-data; name=`"installer`"; filename=`"$fileName`"$LF")
+[void]$sb.Append("Content-Type: application/octet-stream$LF$LF")
+
+$prologue = $enc.GetBytes($sb.ToString())
+$epilogue = $enc.GetBytes("$LF--$boundary--$LF")
+$body = New-Object byte[] ($prologue.Length + $fileBytes.Length + $epilogue.Length)
+[System.Buffer]::BlockCopy($prologue, 0, $body, 0, $prologue.Length)
+[System.Buffer]::BlockCopy($fileBytes, 0, $body, $prologue.Length, $fileBytes.Length)
+[System.Buffer]::BlockCopy($epilogue, 0, $body, $prologue.Length + $fileBytes.Length, $epilogue.Length)
 
 $authHeaders = @{ Authorization = "Bearer $token" }
 
-Write-Host "[publish] requesting presigned URL: POST $registerUri"
-$register = Invoke-RestMethod -Method Post -Uri $registerUri `
-    -Headers $authHeaders -ContentType 'application/json' -Body $registerBody
+Write-Host "[publish] uploading: POST $uploadUri (os=$Os, multipart, $sizeBytes bytes)"
+$resp = Invoke-RestMethod -Method Post -Uri $uploadUri `
+    -Headers $authHeaders `
+    -ContentType "multipart/form-data; boundary=$boundary" `
+    -Body $body
 
-if ($null -eq $register -or [string]::IsNullOrWhiteSpace($register.upload_url)) {
-    throw "Publish API did not return an upload_url for '$fileName'."
+# Defense in depth: HEAXHub computes its own SHA-256 from the streamed bytes;
+# confirm it matches what we signed and uploaded.
+if ($null -eq $resp -or [string]::IsNullOrWhiteSpace($resp.sha256)) {
+    throw "Publish API did not return a package row for '$fileName'."
 }
-$uploadUrl = $register.upload_url
+if ($resp.sha256.ToLower() -ne $Sha256.ToLower()) {
+    throw "Server SHA-256 '$($resp.sha256)' != local '$Sha256' for '$fileName'."
+}
 
-# ── Step 2: PUT the bytes to the presigned object-storage URL ────────────────
-# The presigned URL carries its own auth — do NOT attach the bearer here.
-Write-Host "[publish] uploading bytes to presigned URL (object storage)..."
-Invoke-RestMethod -Method Put -Uri $uploadUrl `
-    -InFile $FilePath -ContentType 'application/octet-stream' | Out-Null
-
-Write-Host "[publish] OK — '$fileName' published as $AppId $cleanVersion (sha256 $Sha256)."
+Write-Host "[publish] OK — '$fileName' published as $AppId $cleanVersion (id=$($resp.id), sha256 $($resp.sha256))."
+Write-Host "[publish] installer_url: $($resp.installer_url)"
