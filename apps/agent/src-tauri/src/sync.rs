@@ -168,16 +168,23 @@ pub fn spawn_loop(app: AppHandle) {
                     tracing::warn!(error = %e, "periodic sync error");
                 }
             }
-            let interval_min = {
+            let (interval_min, failures) = {
                 let state = app.state::<AppState>();
-                state.config_snapshot().sync_interval_min.max(1)
+                (
+                    state.config_snapshot().sync_interval_min.max(1),
+                    state.consecutive_sync_failures.load(Ordering::Relaxed),
+                )
             };
-            let sleep = if paired {
-                Duration::from_secs(interval_min as u64 * 60)
-            } else {
-                Duration::from_secs(30) // poll for pairing more often
-            };
-            tokio::time::sleep(sleep).await;
+            // Base cadence (30 s while unpaired, the configured interval once
+            // paired); jitter de-syncs the fleet and consecutive failures back
+            // it off so a down / rate-limited (429) server isn't polled hard.
+            let base = if paired { interval_min as u64 * 60 } else { 30 };
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| u64::from(d.subsec_nanos()))
+                .unwrap_or(0);
+            let secs = hwax_core::backoff::next_delay_secs(base, failures as u32, seed);
+            tokio::time::sleep(Duration::from_secs(secs)).await;
         }
     });
 }

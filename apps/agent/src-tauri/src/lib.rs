@@ -200,25 +200,36 @@ fn build_http_client(config: &hwax_core::config::AgentConfig) -> reqwest::Result
 /// state. Best-effort; failures only warn.
 fn spawn_heartbeat_loop(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(30 * 60));
         loop {
-            ticker.tick().await;
-            let state = app.state::<AppState>();
-            if !state.is_paired() {
-                continue;
-            }
-            let cfg = state.config_snapshot();
-            let hostname = telemetry::hostname();
-            // Collect installed (id, version) pairs from the cached views.
-            let modules: Vec<(String, String)> = sync::build_module_views(&state)
-                .into_iter()
-                .filter_map(|m| m.current_version.map(|v| (m.id, v)))
-                .collect();
-            if let Err(e) =
-                http::post_heartbeat(&state.http, &cfg.server, Some(&hostname), &modules).await
             {
-                tracing::warn!(error = %e, "heartbeat failed");
+                let state = app.state::<AppState>();
+                if state.is_paired() {
+                    let cfg = state.config_snapshot();
+                    let hostname = telemetry::hostname();
+                    // Collect installed (id, version) pairs from the cached views.
+                    let modules: Vec<(String, String)> = sync::build_module_views(&state)
+                        .into_iter()
+                        .filter_map(|m| m.current_version.map(|v| (m.id, v)))
+                        .collect();
+                    if let Err(e) = http::post_heartbeat(
+                        &state.http,
+                        &cfg.server,
+                        Some(&hostname),
+                        &modules,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "heartbeat failed");
+                    }
+                }
             }
+            // ~30-min cadence + jitter so a fleet's beats don't all land at once.
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| u64::from(d.subsec_nanos()))
+                .unwrap_or(0);
+            let secs = hwax_core::backoff::next_delay_secs(30 * 60, 0, seed);
+            tokio::time::sleep(Duration::from_secs(secs)).await;
         }
     });
 }

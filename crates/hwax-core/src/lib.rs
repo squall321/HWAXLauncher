@@ -20,6 +20,7 @@
 
 pub mod atomic;
 pub mod audit;
+pub mod backoff;
 pub mod config;
 pub mod error;
 pub mod hash;
