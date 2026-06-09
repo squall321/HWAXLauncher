@@ -53,6 +53,20 @@ pub fn origin_of(url: &str) -> Option<String> {
     })
 }
 
+/// Resolve a possibly-relative package/installer URL against the configured
+/// server base. Absolute `http(s)://` URLs pass through unchanged; a relative
+/// path is appended to the server base, preserving any sub-path the base
+/// carries (e.g. the HWAX portal's `/heax-hub`). The hub *contract* says
+/// `package.url` is absolute, but the current server emits a root-relative
+/// path, so the agent normalizes it here before origin-checking / downloading.
+pub fn absolutize(base: &str, url: &str) -> String {
+    let u = url.trim();
+    if u.starts_with("http://") || u.starts_with("https://") {
+        return u.to_string();
+    }
+    format!("{}/{}", base.trim_end_matches('/'), u.trim_start_matches('/'))
+}
+
 /// True iff `url`'s origin matches one of `allowed_origins`.
 pub fn is_allowed(url: &str, allowed_origins: &[String]) -> bool {
     let target = match origin_of(url) {

@@ -4,7 +4,7 @@
 use hwax_core::config::AgentConfig;
 use hwax_core::error::CoreError;
 use hwax_core::hash::{digests_match, sha256_hex, verify_file};
-use hwax_core::origin::{ensure_allowed, is_allowed};
+use hwax_core::origin::{absolutize, ensure_allowed, is_allowed};
 use hwax_core::state::{decide_state, is_newer, ModuleState};
 
 // ── origin allow-list ─────────────────────────────────────────────────────
@@ -56,6 +56,26 @@ fn ensure_allowed_returns_typed_error() {
         ensure_allowed("https://evil/x", &allowed),
         Err(CoreError::OriginNotAllowed(_))
     ));
+}
+
+#[test]
+fn absolutize_resolves_relative_against_server_base() {
+    let base = "https://hwax.sec.samsung.net/heax-hub";
+    // root-relative path (what the current server emits) keeps the /heax-hub prefix
+    assert_eq!(
+        absolutize(base, "/api/v1/installers/abc/download"),
+        "https://hwax.sec.samsung.net/heax-hub/api/v1/installers/abc/download",
+    );
+    // already-absolute passes through untouched
+    assert_eq!(
+        absolutize(base, "https://store.example/x.exe"),
+        "https://store.example/x.exe",
+    );
+    // trailing slash on base + no leading slash on url → single join
+    assert_eq!(absolutize("https://h/p/", "a/b"), "https://h/p/a/b");
+    // a relative URL now passes the origin allow-list once absolutized
+    let allowed = vec![base.to_string()];
+    assert!(is_allowed(&absolutize(base, "/api/v1/installers/x/download"), &allowed));
 }
 
 // ── SHA-256 ───────────────────────────────────────────────────────────────
