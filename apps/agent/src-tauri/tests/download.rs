@@ -43,8 +43,13 @@ fn spawn_mock(body: Vec<u8>) -> (String, mpsc::Receiver<bool>) {
     (format!("http://127.0.0.1:{port}"), rx)
 }
 
+/// download_to drives a NON-redirect-following client (it resolves redirects
+/// itself), so the test client mirrors the production download client.
 fn client() -> reqwest::Client {
-    reqwest::Client::builder().build().unwrap()
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -62,6 +67,7 @@ async fn download_streams_and_omits_auth_cross_origin() {
         &client(),
         "https://heaxhub.internal",
         &format!("{base}/pkg.zip"),
+        &[],
         &dest,
         |_done, total| {
             calls += 1;
@@ -98,6 +104,7 @@ async fn download_follows_redirect() {
         &client(),
         "https://other",
         &format!("{base}/redirect"),
+        std::slice::from_ref(&base),
         &dest,
         |_, _| {},
     )
@@ -106,6 +113,10 @@ async fn download_follows_redirect() {
     assert_eq!(n as usize, body.len());
     assert_eq!(std::fs::read(&dest).unwrap(), body);
 }
+// NOTE: the relative-Location re-prefix (the on-prem portal sub-path 302) is
+// unit-tested directly in `http::tests::relative_location_keeps_server_subpath` —
+// an end-to-end mock would have to drive the same-origin bearer path, which reads
+// the OS credential store and can't run headless.
 
 #[tokio::test]
 async fn download_404_is_error() {
@@ -117,6 +128,7 @@ async fn download_404_is_error() {
         &client(),
         "https://other",
         &format!("{base}/missing"),
+        &[],
         &dest,
         |_, _| {},
     )

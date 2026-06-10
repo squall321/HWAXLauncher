@@ -49,10 +49,13 @@ pub fn run() {
     // Initialize file + stdout tracing into …\logs\agent-YYYY-MM-DD.log (§19).
     let _log_guard = init_tracing(&paths, &config.log_level);
 
-    // One pooled HTTPS client (rustls), shared process-wide.
-    let http = build_http_client(&config).expect("build reqwest client");
+    // Two pooled HTTPS clients (rustls), shared process-wide: the general client
+    // follows redirects; the download client does NOT (it resolves redirects
+    // itself so a relative installer `Location` keeps the server's sub-path).
+    let http = build_http_client(&config, true).expect("build reqwest client");
+    let dl_http = build_http_client(&config, false).expect("build download client");
 
-    let app_state = AppState::new(config, http, paths);
+    let app_state = AppState::new(config, http, dl_http, paths);
 
     tauri::Builder::default()
         // Single-instance guard (v2 §5) — MUST be the first plugin. A 2nd launch
@@ -177,14 +180,22 @@ fn init_tracing(paths: &Paths, log_level: &str) -> tracing_appender::non_blockin
     guard
 }
 
-/// Build the shared `reqwest` client. rustls-only TLS (no native OpenSSL), a
-/// sane timeout, and the optional config proxy applied.
-fn build_http_client(config: &hwax_core::config::AgentConfig) -> reqwest::Result<reqwest::Client> {
+/// Build a shared `reqwest` client. rustls-only TLS (no native OpenSSL), a sane
+/// timeout, and the optional config proxy applied. `follow_redirects` is false
+/// for the download client, which resolves redirects itself (see
+/// `http::download_to`).
+fn build_http_client(
+    config: &hwax_core::config::AgentConfig,
+    follow_redirects: bool,
+) -> reqwest::Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .user_agent(format!("HWAXAgent/{}", state::AGENT_VERSION))
         .connect_timeout(Duration::from_secs(15))
         // No global request timeout: installer downloads can be hundreds of MB.
         .pool_idle_timeout(Duration::from_secs(90));
+    if !follow_redirects {
+        builder = builder.redirect(reqwest::redirect::Policy::none());
+    }
     if let Some(proxy) = &config.proxy {
         if !proxy.is_empty() {
             if let Ok(p) = reqwest::Proxy::all(proxy) {

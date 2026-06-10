@@ -98,46 +98,75 @@ pub async fn fetch_manifest(
     Ok(ManifestFetch::Modified { manifest, etag })
 }
 
+/// Resolve a redirect `Location` for an installer download. A *relative*
+/// `Location` is re-prefixed onto `server` via [`hwax_core::origin::absolutize`]
+/// so any portal sub-path (`…/heax-hub`) is preserved — the on-prem hub `302`s
+/// `/installers/{id}/download` to a root-relative installer path, and resolving
+/// that against the bare request authority (reqwest's default) would drop the
+/// sub-path and 404 the second hop. An *absolute* `Location` passes through. The
+/// resolved URL is re-checked against the allow-list so a redirect can never be a
+/// way around the origin gate (§15 ①). Pure — unit-tested below.
+fn resolve_redirect(server: &str, location: &str, allowed_origins: &[String]) -> Result<String> {
+    let next = hwax_core::origin::absolutize(server, location);
+    hwax_core::origin::ensure_allowed(&next, allowed_origins).map_err(anyhow::Error::from)?;
+    Ok(next)
+}
+
 /// Stream an installer download to `dest` (a `*.partial` path), reporting
 /// per-chunk progress through `on_progress(downloaded, total)`.
 ///
-/// `url` MUST already be origin-allow-listed by the caller. Token handling is
-/// explicit (e2e §9 #6): the device JWT is attached ONLY when `url` shares the
-/// server's origin (the `/installers/{id}/download` endpoint, which requires
-/// `aud=hwax-agent`). That endpoint returns the installer bytes directly (200)
-/// in the on-prem disk deployment, or 302s to a presigned object-storage URL in
-/// a future deployment — this function handles BOTH transparently: reqwest
-/// follows the redirect by default and streams whichever body arrives, and on
-/// the cross-origin redirect hop it strips `Authorization` so the token never
-/// reaches the storage host. Because we never bearer a non-server origin in the
-/// first place, a later change to the redirect policy cannot leak it either.
+/// `http` MUST be a **non-redirect-following** client (see `build_http_client`):
+/// we follow redirects ourselves via [`resolve_redirect`] so a relative
+/// `Location` keeps the server's sub-path and every hop is re-allow-listed.
+/// `url` MUST already be origin-allow-listed by the caller; `allowed_origins` is
+/// the same list, used to gate redirect targets.
+///
+/// Token handling is explicit (e2e §9 #6): the device JWT is attached ONLY on a
+/// hop whose URL shares the server's origin (the `/installers/{id}/download`
+/// endpoint, which requires `aud=hwax-agent`). A redirect to a different
+/// (presigned-storage) origin is fetched WITHOUT the token, so it never reaches
+/// a non-server host.
 pub async fn download_to<P: FnMut(u64, Option<u64>)>(
     http: &reqwest::Client,
     server: &str,
     url: &str,
+    allowed_origins: &[String],
     dest: &Path,
     mut on_progress: P,
 ) -> Result<u64> {
-    let url_owned = url.to_string();
-    let same_origin_as_server = match (origin_of(server), origin_of(url)) {
-        (Some(s), Some(u)) => s == u,
-        _ => false,
+    let mut current = url.to_string();
+    let mut hops = 0u8;
+    let resp = loop {
+        let same_origin_as_server = match (origin_of(server), origin_of(&current)) {
+            (Some(s), Some(u)) => s == u,
+            _ => false,
+        };
+        let cur = current.clone();
+        let r = if same_origin_as_server {
+            authed(http, server, |c, token| c.get(&cur).bearer_auth(token)).await?
+        } else {
+            // Allow-listed, but not our server's origin (e.g. a presigned storage
+            // URL) → fetch WITHOUT the device JWT.
+            http.get(&cur)
+                .send()
+                .await
+                .context("installer download failed")?
+        };
+        if r.status().is_redirection() {
+            hops += 1;
+            if hops > 10 {
+                bail!("installer download exceeded 10 redirects");
+            }
+            let loc = r
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| anyhow!("redirect with no usable Location header"))?;
+            current = resolve_redirect(server, loc, allowed_origins)?;
+            continue;
+        }
+        break r.error_for_status().context("installer download failed")?;
     };
-    let resp = if same_origin_as_server {
-        authed(http, server, |c, token| {
-            c.get(&url_owned).bearer_auth(token)
-        })
-        .await?
-    } else {
-        // Allow-listed, but not our server's origin (e.g. a manifest pointing
-        // straight at a presigned URL) → fetch WITHOUT the device JWT.
-        http.get(&url_owned)
-            .send()
-            .await
-            .context("installer download failed")?
-    }
-    .error_for_status()
-    .context("installer download failed")?;
 
     let total = resp.content_length();
     if let Some(parent) = dest.parent() {
@@ -253,4 +282,48 @@ pub async fn server_reachable(http: &reqwest::Client, server: &str) -> bool {
     // We only care that the TLS handshake + HTTP response happened; a 401 is a
     // perfectly good signal the server is up.
     http.get(&url).send().await.is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_redirect;
+
+    #[test]
+    fn relative_location_keeps_server_subpath() {
+        // The on-prem hub 302s to a root-relative installer path; it MUST be
+        // re-prefixed with the portal sub-path, not resolved against the bare host.
+        let allowed = vec!["https://hwax.sec.samsung.net/heax-hub".to_string()];
+        let next = resolve_redirect(
+            "https://hwax.sec.samsung.net/heax-hub",
+            "/api/v1/apps/x/installers/windows-x64/1.0.0",
+            &allowed,
+        )
+        .unwrap();
+        assert_eq!(
+            next,
+            "https://hwax.sec.samsung.net/heax-hub/api/v1/apps/x/installers/windows-x64/1.0.0"
+        );
+    }
+
+    #[test]
+    fn absolute_location_passes_through_when_allowed() {
+        let allowed = vec!["https://cdn.example".to_string()];
+        let next = resolve_redirect(
+            "https://hub.internal/heax-hub",
+            "https://cdn.example/blob/pkg.zip",
+            &allowed,
+        )
+        .unwrap();
+        assert_eq!(next, "https://cdn.example/blob/pkg.zip");
+    }
+
+    #[test]
+    fn redirect_off_the_allow_list_is_rejected() {
+        // A redirect must not escape the origin gate — an absolute Location to an
+        // un-approved host is refused even though absolutize would pass it through.
+        let allowed = vec!["https://hub.internal".to_string()];
+        assert!(
+            resolve_redirect("https://hub.internal", "https://evil.example/x", &allowed).is_err()
+        );
+    }
 }

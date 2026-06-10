@@ -40,8 +40,12 @@ pub struct AppState {
     /// Live config (mirrors `config.json`). Writers must also persist via
     /// [`crate::config_store::save`].
     pub config: RwLock<AgentConfig>,
-    /// One pooled HTTPS client for the whole process.
+    /// One pooled HTTPS client for the whole process (follows redirects).
     pub http: reqwest::Client,
+    /// A second client that does NOT auto-follow redirects, used only by the
+    /// installer download: it resolves each redirect itself so a relative
+    /// `Location` keeps the server's portal sub-path (see `http::download_to`).
+    pub dl_http: reqwest::Client,
     /// Resolved on-disk layout.
     pub paths: Paths,
     /// `last_sync` as an RFC3339 string, or empty if never synced.
@@ -55,10 +59,16 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(config: AgentConfig, http: reqwest::Client, paths: Paths) -> Self {
+    pub fn new(
+        config: AgentConfig,
+        http: reqwest::Client,
+        dl_http: reqwest::Client,
+        paths: Paths,
+    ) -> Self {
         Self {
             config: RwLock::new(config),
             http,
+            dl_http,
             paths,
             last_sync: RwLock::new(None),
             error_count: AtomicU64::new(0),
