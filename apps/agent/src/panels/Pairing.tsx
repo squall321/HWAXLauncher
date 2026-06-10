@@ -71,15 +71,15 @@ export function Pairing({ onPaired }: PairingProps) {
         </p>
       </header>
 
-      {/* Step 1 — operator URL + code */}
+      {/* Step 1 — admin console link (token issuance is an admin action) */}
       <section className="rounded-lg border border-hwax-border bg-hwax-elevated p-4">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-hwax-muted">
-          <Link2 size={14} /> 1. 관리자 콘솔에서 열기
+          <Link2 size={14} /> 1. 관리자 콘솔 (관리자 권한 필요)
         </div>
         {info ? (
           <div className="mt-3 space-y-3">
             <p className="text-xs text-hwax-muted">
-              아래 콘솔에서 이 PC를 등록하고 등록 토큰을 발급받으세요.
+              HEAXHub 관리자가 아래 콘솔에서 이 PC를 등록하고 등록 토큰을 발급합니다.
             </p>
             <div className="flex items-center gap-2">
               <code
