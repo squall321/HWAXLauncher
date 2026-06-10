@@ -13,9 +13,9 @@ interface PairingProps {
  * Pairing / enrollment panel (v2 §4 + openapi `/enroll`).
  *
  * Flow:
- *  1. `start_pairing()` → the agent shows the operator URL + a short code.
- *  2. The operator issues a single-use `enrollment_token` in the HEAXHub admin
- *     UI; the user pastes it here.
+ *  1. `start_pairing()` → the agent shows a link to the admin agents console.
+ *  2. An operator registers this PC there and issues a single-use
+ *     `enrollment_token`; the user pastes it here.
  *  3. `complete_pairing({ enrollment_token })` exchanges it for the device JWT
  *     pair (stored by Rust in Credential Manager — never in this UI).
  */
@@ -78,6 +78,9 @@ export function Pairing({ onPaired }: PairingProps) {
         </div>
         {info ? (
           <div className="mt-3 space-y-3">
+            <p className="text-xs text-hwax-muted">
+              아래 콘솔에서 이 PC를 등록하고 등록 토큰을 발급받으세요.
+            </p>
             <div className="flex items-center gap-2">
               <code
                 data-selectable
@@ -89,15 +92,6 @@ export function Pairing({ onPaired }: PairingProps) {
               <Button size="sm" variant="ghost" onClick={copyUrl} title="URL 복사">
                 <Copy size={14} /> {copied ? '복사됨' : '복사'}
               </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-hwax-muted">페어링 코드</span>
-              <span
-                data-selectable
-                className="rounded-md bg-hwax-bg px-3 py-1 font-mono text-base tracking-[0.3em] text-hwax-accent"
-              >
-                {info.code}
-              </span>
             </div>
           </div>
         ) : (

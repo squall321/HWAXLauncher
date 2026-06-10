@@ -29,6 +29,12 @@ pub struct AgentConfig {
     pub proxy: Option<String>,
     #[serde(default)]
     pub telemetry_anonymous: bool,
+    /// Opt-in to the WebSocket push subscriber (latency optimization only; the
+    /// poll is always the correctness path). The server-side WS endpoint is a
+    /// later phase, so this defaults **off** — the agent never dials a
+    /// (likely-absent) endpoint until an operator/newer build enables it.
+    #[serde(default)]
+    pub ws_push: bool,
 }
 
 fn d_true() -> bool {
@@ -64,6 +70,7 @@ impl AgentConfig {
             channel: d_channel(),
             proxy: None,
             telemetry_anonymous: false,
+            ws_push: false,
         }
     }
 

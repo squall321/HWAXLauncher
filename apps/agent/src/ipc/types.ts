@@ -48,10 +48,9 @@ export interface AgentStatus {
 }
 
 export interface PairingInfo {
-  /** Enrollment URL the operator opens in the HEAXHub admin UI. */
+  /** Deep-link to the HEAXHub admin agents console (`/admin/agents`), where an
+   *  operator registers this PC and issues the single-use enrollment token. */
   url: string;
-  /** Short human-verifiable pairing code shown alongside the URL. */
-  code: string;
 }
 
 /* ───────────────────────── Modules ───────────────────────── */

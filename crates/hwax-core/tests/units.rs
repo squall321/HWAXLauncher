@@ -150,6 +150,8 @@ fn config_defaults_and_origin_fallback() {
     assert_eq!(c.keep_last_n_versions, 3);
     assert_eq!(c.sync_interval_min, 30);
     assert_eq!(c.channel, "stable");
+    // WS push is opt-in: absent ⇒ off (the server endpoint is a later phase).
+    assert!(!c.ws_push);
     // empty allowed_origins falls back to [server] — never "anywhere"
     assert_eq!(c.effective_allowed_origins(), vec!["https://h".to_string()]);
 

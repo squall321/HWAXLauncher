@@ -4,13 +4,17 @@
 //! always runs too, so a dropped or blocked WS degrades gracefully — this is a
 //! *latency* optimization, never a correctness dependency.
 //!
-//! Endpoint (v2 §13): `<ws|wss>://<server>/ws/agent/{agent_id}?token=<device_jwt>`.
-//! The push payload is server-defined and intentionally NOT parsed — any inbound
-//! message means "the catalog may have changed, go check", so we just resync.
+//! Endpoint (v2 §13): `<ws|wss>://<server>/ws/agent/{agent_id}`, with the device
+//! JWT carried in the `Authorization: Bearer` header (never in the URL query — a
+//! query-string token leaks into proxy/access logs). The push payload is
+//! server-defined and intentionally NOT parsed — any inbound message means "the
+//! catalog may have changed, go check", so we just resync.
 //!
-//! Because the server-side WS is a later phase, connection failures are logged
-//! at `debug` (not `warn`): a missing endpoint must not spam the agent log, and
-//! the poll keeps everything correct regardless.
+//! Because the server-side WS is a later phase, the subscriber is **opt-in**
+//! (`config.ws_push`, default off): until enabled the agent never dials a
+//! (likely-absent) endpoint. When enabled, connection failures are logged at
+//! `debug` (not `warn`) so a missing endpoint can't spam the log, and the poll
+//! keeps everything correct regardless.
 
 use crate::state::AppState;
 use futures_util::StreamExt;
@@ -29,13 +33,13 @@ pub fn spawn_loop(app: AppHandle) {
         tokio::time::sleep(Duration::from_secs(8)).await;
         let mut attempt: usize = 0;
         loop {
-            let Some(url) = ws_url(&app) else {
-                // Not paired / no token yet — the poll covers sync; check later.
+            let Some((url, token)) = ws_target(&app) else {
+                // Disabled / not paired / no token yet — the poll covers sync.
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 continue;
             };
 
-            match connect_and_listen(&app, &url).await {
+            match connect_and_listen(&app, &url, &token).await {
                 Ok(()) => {
                     attempt = 0; // clean close → reconnect promptly
                     tracing::debug!("agent WS closed; reconnecting");
@@ -51,15 +55,18 @@ pub fn spawn_loop(app: AppHandle) {
     });
 }
 
-/// Build `<ws|wss>://host/ws/agent/{id}?token=...` from config + the stored JWT,
-/// or `None` when not paired / no token is available.
-fn ws_url(app: &AppHandle) -> Option<String> {
+/// Build (`<ws|wss>://host/ws/agent/{id}`, device-JWT) from config, or `None`
+/// when push is disabled / not paired / no token is available. The token is
+/// returned separately so the caller can put it in the `Authorization` header
+/// rather than the URL.
+fn ws_target(app: &AppHandle) -> Option<(String, String)> {
     let state = app.state::<AppState>();
     if !state.is_paired() {
         return None;
     }
     let cfg = state.config_snapshot();
-    if cfg.server.is_empty() || cfg.agent_id.is_empty() {
+    // Opt-in (default off) until the server-side WS endpoint ships.
+    if !cfg.ws_push || cfg.server.is_empty() || cfg.agent_id.is_empty() {
         return None;
     }
     let token = crate::auth::access_token().ok().flatten()?;
@@ -68,12 +75,20 @@ fn ws_url(app: &AppHandle) -> Option<String> {
         .trim_end_matches('/')
         .replacen("https://", "wss://", 1)
         .replacen("http://", "ws://", 1);
-    Some(format!("{base}/ws/agent/{}?token={}", cfg.agent_id, token))
+    Some((format!("{base}/ws/agent/{}", cfg.agent_id), token))
 }
 
-/// Connect, then resync on every inbound message until the socket closes.
-async fn connect_and_listen(app: &AppHandle, url: &str) -> anyhow::Result<()> {
-    let (mut ws, _resp) = tokio_tungstenite::connect_async(url).await?;
+/// Connect, then resync on every inbound message until the socket closes. The
+/// device JWT travels in the `Authorization` header, not the URL query.
+async fn connect_and_listen(app: &AppHandle, url: &str, token: &str) -> anyhow::Result<()> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::http::HeaderValue;
+    let mut request = url.into_client_request()?;
+    request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Bearer {token}"))?,
+    );
+    let (mut ws, _resp) = tokio_tungstenite::connect_async(request).await?;
     tracing::info!("agent WS connected");
     while let Some(msg) = ws.next().await {
         match msg? {
