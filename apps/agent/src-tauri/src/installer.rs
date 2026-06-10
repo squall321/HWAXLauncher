@@ -142,8 +142,8 @@ async fn run_install(
     .await;
 
     // 1) Origin allow-list (§15 ①). Maps to audit kind=policy_denied on failure.
-    origin::ensure_allowed(&pkg_url, &cfg.effective_allowed_origins())
-        .map_err(anyhow::Error::from)?;
+    let allowed_origins = cfg.effective_allowed_origins();
+    origin::ensure_allowed(&pkg_url, &allowed_origins).map_err(anyhow::Error::from)?;
     emit_state(app, id, hwax_core::state::ModuleState::Downloading);
 
     // 2) Stream download to the fixed .partial path (§15 ③).
@@ -153,9 +153,10 @@ async fn run_install(
         let app2 = app.clone();
         let id2 = id.clone();
         crate::http::download_to(
-            &state.http,
+            &state.dl_http,
             &cfg.server,
             &pkg_url,
+            &allowed_origins,
             &partial,
             move |done, total| {
                 let pct = match total {
