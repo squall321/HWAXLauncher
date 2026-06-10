@@ -731,12 +731,8 @@ pub fn quit(app: AppHandle) {
 /// tauri.conf.json. The Ed25519 signature is still verified by the plugin
 /// against the pinned pubkey regardless of where the feed came from.
 fn updater_for(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
-    let server = app
-        .state::<AppState>()
-        .config_snapshot()
-        .server
-        .trim_end_matches('/')
-        .to_string();
+    let cfg = app.state::<AppState>().config_snapshot();
+    let server = cfg.server.trim_end_matches('/').to_string();
     let mut builder = app.updater_builder();
     if !server.is_empty() {
         let endpoint = format!("{server}/api/v1/installers/hwax-agent/latest");
@@ -744,6 +740,16 @@ fn updater_for(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String>
             .parse::<reqwest::Url>()
             .map_err(|e| format!("invalid updater endpoint {endpoint}: {e}"))?;
         builder = builder.endpoints(vec![url]).map_err(|e| e.to_string())?;
+    }
+    // Honor the configured corporate proxy. The general reqwest client already
+    // applies it (build_http_client), but the updater plugin has its own client
+    // and otherwise only sees the env/system proxy — behind a config-only proxy
+    // the feed + download would bypass it.
+    if let Some(proxy) = cfg.proxy.as_deref().filter(|p| !p.is_empty()) {
+        let purl = proxy
+            .parse::<reqwest::Url>()
+            .map_err(|e| format!("invalid proxy URL {proxy}: {e}"))?;
+        builder = builder.proxy(purl);
     }
     if let Ok(Some(token)) = crate::auth::access_token() {
         builder = builder
