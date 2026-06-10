@@ -19,11 +19,11 @@ pub struct AgentStatus {
     pub status_color: String,
 }
 
-/// `start_pairing()` result.
+/// `start_pairing()` result — a deep-link to the admin agents console where an
+/// operator registers this PC and issues the single-use enrollment token.
 #[derive(Debug, Clone, Serialize)]
 pub struct PairingInfo {
     pub url: String,
-    pub code: String,
 }
 
 /// One row in `list_modules()` / `sync_manifest().modules`.

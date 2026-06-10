@@ -50,9 +50,10 @@ pub fn agent_status(state: State<'_, AppState>) -> AgentStatus {
     }
 }
 
-/// Begin pairing: open the HEAXHub enrollment page and return the URL + a code
-/// the user reads off the web UI. The real device-JWT exchange happens in
-/// [`complete_pairing`] with the operator-issued enrollment token.
+/// Begin pairing: return a deep-link to the HEAXHub admin agents console, where
+/// an operator registers this PC and issues a single-use enrollment token. The
+/// real device-JWT exchange happens in [`complete_pairing`] with that token —
+/// there is no separate "web approval" step, so no display code is involved.
 #[tauri::command]
 pub fn start_pairing(state: State<'_, AppState>) -> Result<PairingInfo, String> {
     let cfg = state.config_snapshot();
@@ -63,15 +64,10 @@ pub fn start_pairing(state: State<'_, AppState>) -> Result<PairingInfo, String> 
     } else {
         cfg.server.clone()
     };
-    // A short human-facing code shown alongside the web approval (display only;
-    // the security boundary is the single-use enrollment_token).
-    let code = gen_pairing_code();
-    let url = format!(
-        "{}/devices/pair?code={}",
-        server.trim_end_matches('/'),
-        code
-    );
-    Ok(PairingInfo { url, code })
+    // The admin agents page (hub SPA route `/admin/agents`); `server` already
+    // carries the `/heax-hub` base path.
+    let url = format!("{}/admin/agents", server.trim_end_matches('/'));
+    Ok(PairingInfo { url })
 }
 
 /// Complete pairing by exchanging an operator-issued enrollment token for a
@@ -136,17 +132,6 @@ pub async fn complete_pairing(
     crate::tray::refresh(&app);
 
     Ok(agent_status(state))
-}
-
-fn gen_pairing_code() -> String {
-    // A 6-digit display code derived from the process id + a time nonce. This is
-    // not a secret (the enrollment_token is); it only helps the user match the
-    // agent to the right web approval.
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("{:06}", (nonce ^ std::process::id()) % 1_000_000)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
